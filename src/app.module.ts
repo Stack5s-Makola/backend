@@ -17,8 +17,25 @@ import { OtpModule } from './otp/otp.module';
 import { DatabaseModule } from './database/database.module';
 import { CommonModule } from './common/common.module';
 
+
 @Module({
-  imports: [AuthModule, UsersModule, SellersModule, ListingsModule, CategoriesModule, ReviewsModule, SavedModule, SearchModule, SyncModule, AdminModule, UploadsModule, EmailModule, OtpModule, DatabaseModule, CommonModule],
+  imports: [
+    AuthModule,
+    UsersModule, 
+    SellersModule, 
+    ListingsModule, 
+    CategoriesModule, 
+    ReviewsModule, 
+    SavedModule, 
+    SearchModule, 
+    SyncModule, 
+    AdminModule, 
+    UploadsModule, 
+    EmailModule, 
+    OtpModule, 
+    DatabaseModule, 
+    CommonModule
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
