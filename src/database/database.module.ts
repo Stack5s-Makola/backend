@@ -11,6 +11,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
       useFactory: (config: ConfigService) => ({
         type: 'postgres',
         url: config.get<string>('DATABASE_URL'),
+        // TypeORM drops the URL query string, so Neon's sslmode=require is lost
+        ssl: true,
         autoLoadEntities: true,
         synchronize: false,
       }),
