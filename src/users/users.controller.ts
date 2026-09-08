@@ -6,7 +6,9 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @Post()
-  createUser() {}
+  createUser(@Body() createUserDto: any) {
+    return this.usersService.createUser(createUserDto);
+  }
 
   @Get(':id')
   getUserById() {}

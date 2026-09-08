@@ -2,7 +2,13 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class UsersService {
-    async createUser() {}
+    async createUser(createUserDto: any) {
+        return {
+            message: 'User successfully created',
+            data: createUserDto
+        }
+    }
+    
     async getUserById() {}
     async getUserByEmail() {}
     async getUserByPhone() {}
