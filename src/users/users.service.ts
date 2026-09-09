@@ -9,7 +9,7 @@ export class UsersService {
         }
     }
 
-    async getUserById(id: string) {
+    async getUserById(id: string) { 
         return {
             message: `Fetching user by ID ${id}`,
             userId: id
@@ -18,7 +18,14 @@ export class UsersService {
 
     async getUserByEmail() {}
     async getUserByPhone() {}
-    async updateUser() {}
+
+    async updateUser(id: string, updateUserDto: any) {
+        return {
+            message: `Updating user with ID: ${id}`,
+            data: updateUserDto
+        }
+    }
+
     async deleteUser() {}
     async searchUsers() {}
     async changeUserStatus() {}
