@@ -8,8 +8,14 @@ export class UsersService {
             data: createUserDto
         }
     }
-    
-    async getUserById() {}
+
+    async getUserById(id: string) {
+        return {
+            message: `Fetching user by ID ${id}`,
+            userId: id
+        }
+    }
+
     async getUserByEmail() {}
     async getUserByPhone() {}
     async updateUser() {}

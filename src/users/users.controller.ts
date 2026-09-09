@@ -11,7 +11,9 @@ export class UsersController {
   }
 
   @Get(':id')
-  getUserById() {}
+  getUserById(@Param('id') id: string) {
+    return this.usersService.getUserById(id);
+  }
 
   @Put(':id')
   updateUser() {}
