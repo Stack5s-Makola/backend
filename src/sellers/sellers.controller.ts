@@ -30,7 +30,7 @@ export class SellersController {
     return this.sellersService.getSellerById(id)
   }
 
-  @Get('id/products')
+  @Get(':id/products')
   async getSellerProducts(@Param('id') id: string) {
     return this.sellersService.getSellerProducts(id);
   }
