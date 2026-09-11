@@ -3,7 +3,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 @Entity('sellers')
 export class Seller {
 
-// the ! is neccessary to let the compiler to forget the missing initial values since typeScript expect every propertyto have initial values
+  // the ! is neccessary to let the compiler to forget the missing initial values since typeScript expect every propertyto have initial values
 
   @PrimaryGeneratedColumn('uuid')
   id!: string;
@@ -11,10 +11,10 @@ export class Seller {
   @Column()
   userId!: string;
 
-  @Column({ unique: true })
+  @Column({unique: true})
   shopName!: string;
 
-  @Column({ nullable: true })
+  @Column({nullable: true})
   description!: string;
 
   @CreateDateColumn()
@@ -22,4 +22,7 @@ export class Seller {
 
   @UpdateDateColumn()
   updatedAt!: Date;
+
+  @Column({default: 'pending'})
+  verificationStatus!: string;
 }
