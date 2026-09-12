@@ -1,12 +1,13 @@
 import { Controller, Get, Post, Put, Patch, Param, Body, Query, } from '@nestjs/common';
 import { SellersService } from './sellers.service';
+import { Seller } from './entities/seller.entity';
 
 @Controller('sellers')
 export class SellersController {
   constructor(private readonly sellersService: SellersService) {}
 
   @Post()
-  async createSellerProfile(@Body() createSellerDto: any) {
+  async createSellerProfile(@Body() createSellerDto: Partial<Seller>) {
     return this.sellersService.createSellerProfile(createSellerDto);
   }
 

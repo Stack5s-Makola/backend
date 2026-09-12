@@ -1,54 +1,61 @@
 import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, ILike } from 'typeorm';
+import { Seller } from './entities/seller.entity';
 
 @Injectable()
 export class SellersService {
-    async createSellerProfile(createSellerDto: any) {
-        return {
-            message: 'Seller profile successfully created',
-            data: createSellerDto,
-        };
+    constructor(
+        @InjectRepository(Seller)
+        private sellersRepository: Repository<Seller>,
+    ) {}
+
+    async createSellerProfile(createSellerDto: Partial<Seller>): Promise<Seller> {
+        const newSeller = this.sellersRepository.create(createSellerDto);
+        return this.sellersRepository.save(newSeller);
     }
 
-    async getSellerById(id: string) {
-        return {
-            message: `Fetching seller with ID: ${id}`,
-        };
+    async getSellerById(id: string): Promise<Seller | null> {
+        return this.sellersRepository.findOne({
+            where: {id}
+        });
     }
 
     async getSellerByUserId(userId: string) {
-        return {
-            message: `Fetching seller profile for user ID: ${userId}`,
-        };
+        return this.sellersRepository.findOne({
+            where: {userId}
+        });
     }
 
     async updateSellerProfile(id: string, updateSellerDto: any) {
-        return {
-            message: `Updating seller with ID: ${id}`,
-            data: updateSellerDto,
-        };
+        await this.sellersRepository.update(id, updateSellerDto);
+        return this.getSellerById(id);
     }
 
     async getSellerProducts(id: string) {
-        return {
-            message: `Fetching products for seller with ID: ${id}`,
-        };
+        return this.sellersRepository.findOne({
+            where: {id},
+            relations: ['products'],
+        });
     }
 
     async getNearbySellers(lat: string, lng: string) {
-        return {
-            message: `Fetching sellers near coordinates: ${lat}, ${lng}`,
-        };
+        return this.sellersRepository.find();
     }
 
     async searchSellers(query: string) {
-        return {
-            message: `Searching sellers with query: ${query}`,
-        };
+        return this.sellersRepository.find({
+            where: { 
+                shopName: ILike(`%${query}%`) 
+            },
+        });
     }
 
     async updateVerificationStatus(id: string, status: string) {
-        return {
-            message: `Updated verification status for seller ${id} to ${status}`,
-        };
+        await this.sellersRepository.update(id, {
+            verificationStatus: status
+        });
+        
+        return this.getSellerById(id);
     }
 }

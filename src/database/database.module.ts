@@ -14,7 +14,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
         // TypeORM drops the URL query string, so Neon's sslmode=require is lost
         ssl: true,
         autoLoadEntities: true,
-        synchronize: false,
+        synchronize: true,
       }),
     }),
   ],
