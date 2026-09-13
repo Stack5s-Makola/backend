@@ -1,4 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Product } from '../../products/entities/product.entity';
+import { OneToMany } from 'typeorm';
 
 @Entity('sellers')
 export class Seller {
@@ -25,4 +27,7 @@ export class Seller {
 
   @Column({default: 'pending'})
   verificationStatus!: string;
+
+  @OneToMany(() => Product, product => product.seller)
+  products!: Product[];
 }
