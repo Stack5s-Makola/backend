@@ -87,4 +87,17 @@ export class SellersService {
     async remove(id: string): Promise<void> {
         await this.sellersRepository.delete(id);
     }
+
+    async findNearby(latitude: number, longitude: number, radius: number): Promise<Seller[]> {
+        return this.sellersRepository.createQueryBuilder('seller')
+            .addSelect(
+                `( 6371 * acos( cos( radians(:latitude) ) * cos( radians( seller.latitude ) ) * cos( radians( seller.longitude ) - radians(:longitude) ) + sin( radians(:latitude) ) * sin( radians( seller.latitude ) ) ) )`,
+                'distance'
+            )
+            .where('seller.latitude IS NOT NULL AND seller.longitude IS NOT NULL')
+            .having('distance < :radius')
+            .orderBy('distance', 'ASC')
+            .setParameters({ latitude, longitude, radius })
+            .getMany();
+    }
 }

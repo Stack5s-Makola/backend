@@ -3,6 +3,7 @@ import { SellersService } from './sellers.service';
 import { Seller } from './entities/seller.entity';
 import { CreateSellerDto } from './dto/create-seller.dto';
 import { UpdateSellerDto } from './dto/update-seller.dto';
+import { GetNearbySellersDto } from './dto/get-nearby-sellers.dto';
 
 @Controller('sellers')
 export class SellersController {
@@ -61,6 +62,11 @@ export class SellersController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.sellersService.findOne(id);
+  }
+
+  @Get('location/nearby')
+  findNearby(@Query() query: GetNearbySellersDto) {
+    return this.sellersService.findNearby(query.latitude, query.longitude, query.radius);
   }
 
   @Patch(':id')
