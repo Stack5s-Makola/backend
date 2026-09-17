@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { Product } from '../products/entities/product.entity';
 
 @Module({
   imports: [
@@ -14,7 +15,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
         // TypeORM drops the URL query string, so Neon's sslmode=require is lost
         ssl: true,
         autoLoadEntities: true,
-        synchronize: true,
+        synchronize: false,
+        entities: [Product],
       }),
     }),
   ],
