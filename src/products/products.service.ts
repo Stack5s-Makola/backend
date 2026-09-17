@@ -5,6 +5,7 @@ import { Product } from './entities/product.entity';
 import { Seller } from '../sellers/entities/seller.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { GetProductsFilterDto } from './dto/get-products-filter.dto';
 
 @Injectable()
 export class ProductsService {
@@ -16,7 +17,7 @@ export class ProductsService {
     ) {}
 
     async create(createProductDto: CreateProductDto): Promise<Product> {
-        const seller = await this.sellersRepository.findOneBy({ id: createProductDto.sellerId });
+        const seller = await this.sellersRepository.findOneBy({id: createProductDto.sellerId});
         if (!seller) {
             throw new NotFoundException('Seller not found');
         }
@@ -30,7 +31,7 @@ export class ProductsService {
 
     async findAllBySeller(sellerId: string): Promise<Product[]> {
         return this.productsRepository.find({
-            where: {seller: {id: sellerId}},
+            where: { seller: { id: sellerId } },
             relations: ['seller'],
         });
     }
@@ -50,5 +51,27 @@ export class ProductsService {
 
     async remove(id: string): Promise<void> {
         await this.productsRepository.delete(id);
+    }
+
+    async findAll(filterDto: GetProductsFilterDto): Promise<Product[]> {
+        const { search, categoryId, subcategoryId } = filterDto;
+        const query = this.productsRepository.createQueryBuilder('product')
+            .leftJoinAndSelect('product.seller', 'seller')
+            .leftJoinAndSelect('product.category', 'category')
+            .leftJoinAndSelect('product.subcategory', 'subcategory');
+
+        if (search) {
+            query.andWhere('LOWER(product.name) LIKE LOWER(:search)', {search: `%${search}%`});
+        }
+
+        if (categoryId) {
+            query.andWhere('category.id = :categoryId', {categoryId});
+        }
+
+        if (subcategoryId) {
+            query.andWhere('subcategory.id = :subcategoryId', {subcategoryId});
+        }
+
+        return query.getMany();
     }
 }
