@@ -16,6 +16,7 @@ import { EmailModule } from './email/email.module';
 import { OtpModule } from './otp/otp.module';
 import { DatabaseModule } from './database/database.module';
 import { CommonModule } from './common/common.module';
+import { ProductsModule } from './products/products.module';
 
 
 @Module({
@@ -34,7 +35,7 @@ import { CommonModule } from './common/common.module';
     EmailModule, 
     OtpModule, 
     DatabaseModule, 
-    CommonModule
+    CommonModule, ProductsModule
   ],
   controllers: [AppController],
   providers: [AppService],

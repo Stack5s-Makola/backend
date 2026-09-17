@@ -1,6 +1,8 @@
-import { Controller, Get, Post, Put, Patch, Param, Body, Query, } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Param, Body, Query, Delete } from '@nestjs/common';
 import { SellersService } from './sellers.service';
 import { Seller } from './entities/seller.entity';
+import { CreateSellerDto } from './dto/create-seller.dto';
+import { UpdateSellerDto } from './dto/update-seller.dto';
 
 @Controller('sellers')
 export class SellersController {
@@ -9,6 +11,11 @@ export class SellersController {
   @Post()
   async createSellerProfile(@Body() createSellerDto: Partial<Seller>) {
     return this.sellersService.createSellerProfile(createSellerDto);
+  }
+
+  @Post()
+  create(@Body() createSellerDto: CreateSellerDto) {
+    return this.sellersService.create(createSellerDto);
   }
 
   @Get('search')
@@ -44,5 +51,25 @@ export class SellersController {
   @Patch(':id/verify')
   async updateVerificationStatus(@Param('id') id: string, @Body('status') status: string) {
     return this.sellersService.updateVerificationStatus(id, status);
+  }
+
+  @Get()
+  findAll() {
+    return this.sellersService.findAll();
+  }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) {
+    return this.sellersService.findOne(id);
+  }
+
+  @Patch(':id')
+  update(@Param('id') id: string, @Body() updateSellerDto: UpdateSellerDto) {
+    return this.sellersService.update(id, updateSellerDto);
+  }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) {
+    return this.sellersService.remove(id);
   }
 }
