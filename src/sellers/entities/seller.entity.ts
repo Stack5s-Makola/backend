@@ -28,6 +28,12 @@ export class Seller {
   @Column({default: 'pending'})
   verificationStatus!: string;
 
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  latitude?: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  longitude?: number;
+
   @OneToMany(() => Product, product => product.seller)
   products!: Product[];
 }
