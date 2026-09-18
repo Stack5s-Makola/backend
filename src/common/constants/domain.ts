@@ -19,12 +19,40 @@ export function normaliseRole(role: string | undefined | null) {
   return role?.toUpperCase() as UserRole | undefined;
 }
 
-export type UserStatus = 'active' | 'suspended';
-export const USER_STATUSES: UserStatus[] = ['active', 'suspended'];
+// 'deleted' is a soft delete: the row stays for history and moderation
+export type UserStatus = 'active' | 'suspended' | 'deleted';
+export const USER_STATUSES: UserStatus[] = ['active', 'suspended', 'deleted'];
 
 export type SellerVerificationStatus = 'pending' | 'approved' | 'rejected';
+export const SELLER_VERIFICATION_STATUSES: SellerVerificationStatus[] = [
+  'pending',
+  'approved',
+  'rejected',
+];
 
 export type ListingApprovalStatus =
   'pending' | 'approved' | 'rejected' | 'removed';
+export const LISTING_APPROVAL_STATUSES: ListingApprovalStatus[] = [
+  'pending',
+  'approved',
+  'rejected',
+  'removed',
+];
+
+/**
+ * Which approval states each moderation action may start from.
+ *
+ *   approve  pending / rejected / removed -> approved  (also reinstates)
+ *   reject   pending                      -> rejected
+ *   remove   approved                     -> removed   (take down a live one)
+ */
+export const LISTING_TRANSITIONS: Record<
+  'approved' | 'rejected' | 'removed',
+  ListingApprovalStatus[]
+> = {
+  approved: ['pending', 'rejected', 'removed'],
+  rejected: ['pending'],
+  removed: ['approved'],
+};
 
 export type ReportStatus = 'pending' | 'reviewed' | 'resolved' | 'dismissed';

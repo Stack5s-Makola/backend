@@ -19,7 +19,7 @@ describe('validationPipe', () => {
     expect.assertions(2);
 
     try {
-      await validationPipe.transform({ status: 'deleted' }, metadata);
+      await validationPipe.transform({ status: 'banned' }, metadata);
     } catch (error) {
       const body = (error as BadRequestException).getResponse() as {
         message: string;

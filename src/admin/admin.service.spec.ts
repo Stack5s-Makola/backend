@@ -1,7 +1,11 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { In } from 'typeorm';
+import { ILike, In } from 'typeorm';
 import { Product } from '../products/entities/product.entity';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
@@ -217,7 +221,96 @@ describe('AdminService', () => {
     });
   });
 
+  describe('user management (week 2)', () => {
+    it('filters by status', async () => {
+      await service.listUsers({ status: 'suspended' });
+
+      expect(callArg(users.findAndCount).where).toEqual({
+        status: 'suspended',
+      });
+    });
+
+    it('combines role and status', async () => {
+      await service.listUsers({ role: 'BUYER', status: 'active' });
+
+      expect(callArg(users.findAndCount).where).toEqual({
+        role: In(['BUYER', 'buyer']),
+        status: 'active',
+      });
+    });
+
+    it('includes the seller profile on the user detail', async () => {
+      users.findOne.mockResolvedValue({ id: 'u1' });
+      sellers.findOne.mockResolvedValue({ id: 's1', shopName: 'Kwame' });
+
+      const { data } = await service.getUser('u1');
+
+      expect(sellers.findOne).toHaveBeenCalledWith({ where: { userId: 'u1' } });
+      expect(data.sellerProfile).toEqual({ id: 's1', shopName: 'Kwame' });
+    });
+
+    it('returns a null seller profile for a buyer', async () => {
+      users.findOne.mockResolvedValue({ id: 'u1' });
+
+      const { data } = await service.getUser('u1');
+
+      expect(data.sellerProfile).toBeNull();
+    });
+
+    it('soft-deletes by setting status to deleted', async () => {
+      users.findOne.mockResolvedValue({ id: 'u1', status: 'deleted' });
+
+      const result = await service.updateUserStatus('u1', 'deleted', 'a1');
+
+      expect(users.update).toHaveBeenCalledWith('u1', { status: 'deleted' });
+      expect(result.message).toBe('User deleted');
+    });
+  });
+
   describe('buyer management', () => {
+    it('filters buyers by status', async () => {
+      await service.listBuyers({ status: 'suspended' });
+
+      expect(callArg(users.findAndCount).where).toEqual({
+        role: In(['BUYER', 'buyer']),
+        status: 'suspended',
+      });
+    });
+
+    it('searches only buyers', async () => {
+      await service.searchBuyers({ q: 'ama' });
+      const where = callArg(users.findAndCount).where as Record<
+        string,
+        unknown
+      >[];
+
+      expect(where).toHaveLength(2);
+      expect(
+        where.every((clause) => {
+          const role = clause.role as ReturnType<typeof In>;
+          return (
+            JSON.stringify(role) === JSON.stringify(In(['BUYER', 'buyer']))
+          );
+        }),
+      ).toBe(true);
+    });
+
+    it('suspends a buyer', async () => {
+      users.findOne.mockResolvedValue({ id: 'b1', status: 'suspended' });
+
+      const result = await service.updateBuyerStatus('b1', 'suspended', 'a1');
+
+      expect(users.update).toHaveBeenCalledWith('b1', { status: 'suspended' });
+      expect(result.message).toBe('Buyer suspended');
+    });
+
+    it('will not change the status of a non-buyer through the buyer route', async () => {
+      await expect(
+        service.updateBuyerStatus('s1', 'suspended', 'a1'),
+      ).rejects.toThrow(NotFoundException);
+      expect(users.update).not.toHaveBeenCalled();
+    });
+
     it('lists only users with the BUYER role', async () => {
       await service.listBuyers({});
 
@@ -300,6 +393,89 @@ describe('AdminService', () => {
     });
   });
 
+  describe('seller management (week 2)', () => {
+    it('filters by verification status and shop name', async () => {
+      await service.listSellers({ verificationStatus: 'approved', q: ' kwa ' });
+
+      expect(callArg(sellers.findAndCount).where).toEqual({
+        verificationStatus: 'approved',
+        shopName: ILike('%kwa%'),
+      });
+    });
+
+    it("breaks the seller's listings down by status", async () => {
+      sellers.findOne.mockResolvedValue({ id: 's1', userId: 'u1' });
+      listings.count
+        .mockResolvedValueOnce(10)
+        .mockResolvedValueOnce(2)
+        .mockResolvedValueOnce(6)
+        .mockResolvedValueOnce(1)
+        .mockResolvedValueOnce(1);
+
+      const { data } = await service.getSeller('s1');
+
+      expect(data.listings).toEqual({
+        total: 10,
+        pending: 2,
+        approved: 6,
+        rejected: 1,
+        removed: 1,
+      });
+    });
+
+    it('409s when approving a seller that is already approved', async () => {
+      sellers.findOne.mockResolvedValue({
+        id: 's1',
+        verificationStatus: 'approved',
+      });
+
+      await expect(service.approveSeller('s1')).rejects.toThrow(
+        new ConflictException('Seller is already approved'),
+      );
+      expect(sellers.update).not.toHaveBeenCalled();
+    });
+
+    it('allows revoking an approved seller', async () => {
+      sellers.findOne.mockResolvedValue({
+        id: 's1',
+        userId: 'u1',
+        verificationStatus: 'approved',
+      });
+
+      const result = await service.rejectSeller('s1');
+
+      expect(sellers.update).toHaveBeenCalledWith('s1', {
+        verificationStatus: 'rejected',
+      });
+      expect(result.message).toBe('Seller rejected');
+    });
+
+    it('suspends the account behind a seller', async () => {
+      sellers.findOne.mockResolvedValue({ id: 's1', userId: 'u1' });
+      users.findOne.mockResolvedValue({ id: 'u1', status: 'suspended' });
+
+      const result = await service.updateSellerStatus('s1', 'suspended', 'a1');
+
+      expect(users.update).toHaveBeenCalledWith('u1', { status: 'suspended' });
+      expect(sellers.update).not.toHaveBeenCalled();
+      expect(result.message).toBe('Seller suspended');
+    });
+
+    it('404s suspending a seller that does not exist', async () => {
+      await expect(
+        service.updateSellerStatus('nope', 'suspended', 'a1'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('stops an admin suspending their own seller profile', async () => {
+      sellers.findOne.mockResolvedValue({ id: 's1', userId: 'a1' });
+
+      await expect(
+        service.updateSellerStatus('s1', 'suspended', 'a1'),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
   describe('listing management', () => {
     it('includes seller, category and subcategory', async () => {
       await service.listListings({});
@@ -319,19 +495,145 @@ describe('AdminService', () => {
       });
     });
 
-    it.each([
-      ['approveListing', 'approved'],
-      ['rejectListing', 'rejected'],
-      ['removeListing', 'removed'],
-    ] as const)('%s sets approvalStatus %s', async (method, status) => {
-      listings.findOne.mockResolvedValue({ id: 'l1', approvalStatus: status });
-
-      const result = await service[method]('l1');
-
-      expect(listings.update).toHaveBeenCalledWith('l1', {
-        approvalStatus: status,
+    it('combines status, seller, category and name filters', async () => {
+      await service.listListings({
+        status: 'approved',
+        sellerId: 's1',
+        categoryId: 'c1',
+        q: ' kente ',
       });
-      expect(result.message).toBe(`Listing ${status}`);
+
+      expect(callArg(listings.findAndCount).where).toEqual({
+        approvalStatus: 'approved',
+        seller: { id: 's1' },
+        category: { id: 'c1' },
+        name: ILike('%kente%'),
+      });
+    });
+
+    it("attaches the seller's account on the listing detail", async () => {
+      listings.findOne.mockResolvedValue({
+        id: 'l1',
+        seller: { id: 's1', userId: 'u1' },
+      });
+      users.find.mockResolvedValue([{ id: 'u1', email: 'a@x.com' }]);
+
+      const { data } = await service.getListing('l1');
+
+      expect((data.seller as { user?: { email: string } }).user?.email).toBe(
+        'a@x.com',
+      );
+    });
+
+    describe('moderation transitions', () => {
+      it.each([
+        ['approveListing', 'pending', 'approved'],
+        ['approveListing', 'rejected', 'approved'],
+        ['approveListing', 'removed', 'approved'],
+        ['rejectListing', 'pending', 'rejected'],
+        ['removeListing', 'approved', 'removed'],
+      ] as const)('%s moves %s -> %s', async (method, from, to) => {
+        listings.findOne.mockResolvedValue({ id: 'l1', approvalStatus: from });
+
+        const result = await service[method]('l1', 'admin-1');
+        const [, patch] = listings.update.mock.calls[0] as [
+          string,
+          { approvalStatus: string; moderatedBy: string; moderatedAt: Date },
+        ];
+
+        expect(patch.approvalStatus).toBe(to);
+        expect(patch.moderatedBy).toBe('admin-1');
+        expect(patch.moderatedAt).toBeInstanceOf(Date);
+        expect(result.message).toBe(`Listing ${to}`);
+      });
+
+      it.each([
+        [
+          'rejectListing',
+          'approved',
+          'Cannot reject a listing that is approved',
+        ],
+        ['rejectListing', 'removed', 'Cannot reject a listing that is removed'],
+        ['removeListing', 'pending', 'Cannot remove a listing that is pending'],
+        [
+          'removeListing',
+          'rejected',
+          'Cannot remove a listing that is rejected',
+        ],
+      ] as const)('%s refuses from %s', async (method, from, message) => {
+        listings.findOne.mockResolvedValue({ id: 'l1', approvalStatus: from });
+
+        await expect(service[method]('l1')).rejects.toThrow(
+          new ConflictException(message),
+        );
+        expect(listings.update).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['approveListing', 'approved'],
+        ['rejectListing', 'rejected'],
+        ['removeListing', 'removed'],
+      ] as const)(
+        '%s on a listing already %s is a 409',
+        async (method, status) => {
+          listings.findOne.mockResolvedValue({
+            id: 'l1',
+            approvalStatus: status,
+          });
+
+          await expect(service[method]('l1')).rejects.toThrow(
+            new ConflictException(`Listing is already ${status}`),
+          );
+        },
+      );
+
+      it('404s for a listing that does not exist', async () => {
+        await expect(service.approveListing('nope')).rejects.toThrow(
+          NotFoundException,
+        );
+      });
+
+      it('stores a trimmed reason on reject', async () => {
+        listings.findOne.mockResolvedValue({
+          id: 'l1',
+          approvalStatus: 'pending',
+        });
+
+        await service.rejectListing('l1', 'admin-1', '  blurry photos  ');
+
+        expect(listings.update).toHaveBeenCalledWith(
+          'l1',
+          expect.objectContaining({ moderationNote: 'blurry photos' }),
+        );
+      });
+
+      it('stores null for a blank reason', async () => {
+        listings.findOne.mockResolvedValue({
+          id: 'l1',
+          approvalStatus: 'approved',
+        });
+
+        await service.removeListing('l1', 'admin-1', '   ');
+
+        expect(listings.update).toHaveBeenCalledWith(
+          'l1',
+          expect.objectContaining({ moderationNote: null }),
+        );
+      });
+
+      it('clears the note when a listing is approved', async () => {
+        listings.findOne.mockResolvedValue({
+          id: 'l1',
+          approvalStatus: 'rejected',
+        });
+
+        await service.approveListing('l1', 'admin-1');
+
+        expect(listings.update).toHaveBeenCalledWith(
+          'l1',
+          expect.objectContaining({ moderationNote: null }),
+        );
+      });
     });
   });
 

@@ -1,10 +1,10 @@
 import { IsIn, IsOptional } from 'class-validator';
 import { USER_ROLES } from '../../common/constants/domain';
 import type { UserRole } from '../../common/constants/domain';
-import { PaginationDto } from './pagination.dto';
+import { UserStatusFilterDto } from './status-filter';
 
-/** Optional ?role= filter, so the Admin Web can list buyers and sellers apart. */
-export class ListUsersDto extends PaginationDto {
+/** Optional ?role= and ?status= filters for GET /api/admin/users. */
+export class ListUsersDto extends UserStatusFilterDto {
   @IsOptional()
   @IsIn(USER_ROLES, {
     message: `role must be one of: ${USER_ROLES.join(', ')}`,
