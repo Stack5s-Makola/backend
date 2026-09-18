@@ -1,98 +1,129 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Makola — Backend API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS REST API for the Makola marketplace. PostgreSQL (Neon) is the source of
+truth; the mobile app keeps a local SQLite cache, and the Admin Web app manages
+the platform through the Admin API documented below.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## Stack
 
-## Description
+| Concern  | Choice                      |
+| -------- | --------------------------- |
+| Runtime  | NestJS 11 (Node 20+)        |
+| Database | PostgreSQL on Neon (TypeORM)|
+| Images   | Cloudinary                  |
+| Email    | Brevo                       |
+| Hosting  | Docker → Render             |
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
+## Setup
 
 ```bash
-$ npm install
+npm install
+cp .env.example .env    # then fill in the values
+npm run migration:run   # create/patch the schema
+npm run start:dev
 ```
 
-## Compile and run the project
+The API listens on `PORT` (default 3000) and every route is under `/api`.
+
+### Environment
+
+| Variable                | Required | Notes                                                        |
+| ----------------------- | -------- | ------------------------------------------------------------ |
+| `DATABASE_URL`          | yes      | Neon connection string                                       |
+| `JWT_SECRET`            | yes      | Shared by whatever issues tokens and the guards that verify  |
+| `JWT_ACCESS_EXPIRES_IN` | no       | Defaults to `15m`                                            |
+| `ALLOWED_ORIGINS`       | no       | Comma separated CORS allowlist; unset allows any origin      |
+| `PORT`                  | no       | Defaults to 3000                                             |
+| `CLOUDINARY_*`          | yes      | Image uploads                                                |
+| `BREVO_API_KEY`         | yes      | OTP and transactional email                                  |
+
+## Database migrations
+
+`synchronize` is off — the schema only ever changes through a migration.
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm run migration:run       # apply pending migrations
+npm run migration:show      # what is applied / pending
+npm run migration:revert    # roll the last one back
+npm run migration:generate  # diff entities against the database
 ```
 
-## Run tests
+## Response format
+
+Every endpoint returns the same envelope, applied globally by
+`ResponseInterceptor` and `HttpExceptionFilter`.
+
+Success:
+
+```json
+{ "success": true, "message": "Users retrieved", "data": [] }
+```
+
+List endpoints add pagination meta:
+
+```json
+{ "success": true, "message": "Users retrieved", "data": [],
+  "meta": { "total": 45, "page": 1, "limit": 20, "pages": 3 } }
+```
+
+Error:
+
+```json
+{ "success": false, "message": "User not found", "data": null }
+```
+
+Validation error:
+
+```json
+{ "success": false, "message": "Validation failed", "data": null,
+  "errors": { "status": "status must be one of: active, suspended" } }
+```
+
+## Authentication for the Admin API
+
+Every `/api/admin/*` route requires a Bearer access token whose `role` claim is
+`ADMIN`:
+
+```
+Authorization: Bearer <access token>
+```
+
+The token is verified with `JWT_SECRET` and must carry at least:
+
+```json
+{ "sub": "<user uuid>", "role": "ADMIN" }
+```
+
+Responses: `401` when the token is missing, malformed or expired; `403` when it
+is valid but the role is not `ADMIN`.
+
+> The auth module issues these tokens (login/refresh). This API only verifies
+> them, so the two sides only need to agree on `sub` and `role`.
+
+## Admin API
+
+The full Admin API reference for the Admin Web — every endpoint, its
+parameters, response messages and status codes — is in
+[documentation/adminAPI.md](documentation/adminAPI.md).
+
+## Tests
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm test
+npm run test:cov
 ```
+
+## Known issue: Neon cold starts
+
+Neon suspends an idle compute. The first request after a quiet spell can fail
+with `ETIMEDOUT` while the database wakes, surfacing as a `500`; the retry
+succeeds. `DatabaseModule` already widens the connect timeout and retries at
+startup, but a pool connection acquired later cannot be retried the same way.
+If this becomes disruptive for the Admin Web, the options are a keep-alive
+ping or a Neon plan without suspend.
 
 ## Deployment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Docker image → Render. `DATABASE_URL`, `JWT_SECRET` and `ALLOWED_ORIGINS`
+(the Admin Web origin) must be set in the Render environment, and
+`npm run migration:run` applied against the deployment database.

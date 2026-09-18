@@ -15,8 +15,21 @@ import { Product } from '../products/entities/product.entity';
         // TypeORM drops the URL query string, so Neon's sslmode=require is lost
         ssl: true,
         autoLoadEntities: true,
+        // Schema changes go through migrations, never an automatic sync
         synchronize: false,
         entities: [Product],
+        migrations: [__dirname + '/migrations/*{.ts,.js}'],
+        // Neon suspends an idle compute, so the first connection after a quiet
+        // spell has to wait for it to wake. Without a longer timeout and a
+        // few retries that cold start surfaces as a failed boot or a 500.
+        retryAttempts: 5,
+        retryDelay: 3000,
+        extra: {
+          max: 10,
+          connectionTimeoutMillis: 15000,
+          idleTimeoutMillis: 30000,
+          keepAlive: true,
+        },
       }),
     }),
   ],
