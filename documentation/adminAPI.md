@@ -86,6 +86,7 @@ next to the offending field.
 | `401` | Missing / invalid / expired token                                   |
 | `403` | Authenticated, but not an ADMIN                                     |
 | `404` | The requested record does not exist                                 |
+| `409` | The action conflicts with the record's current state (see 6.5)      |
 | `500` | Unexpected server error (see "Cold starts" at the bottom)           |
 
 There are no `201` responses. The Admin API only reads and updates.
@@ -141,6 +142,9 @@ by any admin endpoint.
 
 `phone` may be `null`. There is no name field on users yet.
 
+On `GET /users/:id` only, the user also carries `sellerProfile`: their Seller
+(without `user`), or `null` if they have no seller profile.
+
 **Seller**: the owning account is attached as `user` (a User, as above, or
 `null` if that account no longer exists)
 
@@ -162,6 +166,13 @@ by any admin endpoint.
 `latitude` / `longitude` come back as **strings** (Postgres decimals) and may
 be `null`. Use `parseFloat` before putting them on a map.
 
+On `GET /sellers/:id` (and the approve / reject / status responses) the seller
+also carries a breakdown of its listings:
+
+```json
+"listings": { "total": 10, "pending": 2, "approved": 6, "rejected": 1, "removed": 1 }
+```
+
 **Listing**: `seller`, `category` and `subcategory` are included
 
 ```json
@@ -169,7 +180,10 @@ be `null`. Use `parseFloat` before putting them on a map.
   "id": "07ee9c31-13ee-4994-9d99-356c72f80ca6",
   "name": "Kente Fabric",
   "price": "300",
-  "approvalStatus": "pending",
+  "approvalStatus": "rejected",
+  "moderationNote": "Photos are blurry, please re-upload",
+  "moderatedBy": "99999999-9999-4999-8999-000000000001",
+  "moderatedAt": "2026-09-18T09:12:40.031Z",
   "createdAt": "2026-09-11T15:48:02.412Z",
   "updatedAt": "2026-09-11T15:48:02.412Z",
   "seller": { },
@@ -179,7 +193,15 @@ be `null`. Use `parseFloat` before putting them on a map.
 ```
 
 `price` is also a **string** decimal. `category` and `subcategory` may be
-`null`. The embedded `seller` here does **not** carry its `user`.
+`null`.
+
+`moderationNote` is the reason given on the last reject or remove, and is
+`null` after an approval or when no reason was given. `moderatedBy` /
+`moderatedAt` record the admin and time of the last approve, reject or remove;
+all three are `null` on a listing nobody has moderated yet.
+
+The embedded `seller` carries its `user` on `GET /listings/:id` and on the
+approve / reject / remove responses, but **not** in list responses.
 
 **Report**: the reporting account is attached as `reporter` (a User, or `null`)
 
@@ -208,7 +230,7 @@ Once an admin acts on it, `reviewedBy` holds that admin's user id and
 | Field                       | Values                                      |
 | --------------------------- | ------------------------------------------- |
 | `user.role`                 | `BUYER`, `SELLER`, `ADMIN`, see note below  |
-| `user.status`               | `active`, `suspended`                       |
+| `user.status`               | `active`, `suspended`, `deleted`            |
 | `seller.verificationStatus` | `pending`, `approved`, `rejected`           |
 | `listing.approvalStatus`    | `pending`, `approved`, `rejected`, `removed`|
 | `report.status`             | `pending`, `reviewed`, `resolved`, `dismissed` |
@@ -277,15 +299,17 @@ time-series data on this endpoint.
 
 #### `GET /api/admin/users`
 
-| Query   | Notes                                    |
-| ------- | ---------------------------------------- |
-| `page`  | see Pagination                           |
-| `limit` | see Pagination                           |
-| `role`  | optional: `BUYER`, `SELLER` or `ADMIN`   |
+| Query    | Notes                                         |
+| -------- | --------------------------------------------- |
+| `page`   | see Pagination                                |
+| `limit`  | see Pagination                                |
+| `role`   | optional: `BUYER`, `SELLER` or `ADMIN`        |
+| `status` | optional: `active`, `suspended` or `deleted`  |
 
 - **200**: `"Users retrieved"`, array of User, plus `meta`
-- **400**: bad `page` / `limit`, or an unknown role:
+- **400**: bad `page` / `limit`, or an unknown role / status:
   `{ "role": "role must be one of: BUYER, SELLER, ADMIN" }`
+  `{ "status": "status must be one of: active, suspended, deleted" }`
 
 #### `GET /api/admin/users/search`
 
@@ -293,6 +317,7 @@ time-series data on this endpoint.
 | ------- | -------- | ------------------------------------------------- |
 | `q`     | **yes**  | Case-insensitive partial match on email or phone  |
 | `role`  | no       | Narrows the search to one role                    |
+| `status`| no       | Narrows the search to one status                  |
 | `page`  | no       |                                                   |
 | `limit` | no       |                                                   |
 
@@ -303,14 +328,15 @@ A search with no hits is still **200** with `data: []`, not a 404.
 
 #### `GET /api/admin/users/:id`
 
-- **200**: `"User retrieved"`, `data` is a User
+- **200**: `"User retrieved"`, `data` is a User plus `sellerProfile`
 - **400**: `:id` is not a UUID
 - **404**: `"User <id> not found"`
 
 #### `PATCH /api/admin/users/:id/status`
 
-Suspend or reinstate any account: buyer, seller or admin. Suspending a
-seller's account is how a seller is suspended.
+Suspend, reinstate or remove any account: buyer, seller or admin.
+`deleted` is a **soft delete**: the account and its history stay in the
+database and it can be reinstated by setting `active` again.
 
 Request:
 
@@ -318,9 +344,10 @@ Request:
 { "status": "suspended" }
 ```
 
-- **200**: `"User suspended"` / `"User active"`, `data` is the **updated** User
+- **200**: `"User suspended"` / `"User active"` / `"User deleted"`, `data` is
+  the **updated** User
 - **400**: missing or invalid status:
-  `{ "status": "status must be one of: active, suspended" }`
+  `{ "status": "status must be one of: active, suspended, deleted" }`
 - **400**: `"You cannot change your own status"`, when the id is the signed-in
   admin's own account
 - **404**: `"User <id> not found"`
@@ -338,7 +365,19 @@ The user reads, pre-filtered to the BUYER role, for the Users → Buyers page.
 
 - **200**: `"Buyers retrieved"`, array of User, plus `meta`
 
-Accepts `page` and `limit`. It does **not** accept `role`.
+Accepts `page`, `limit` and `status`. It does **not** accept `role`.
+
+#### `GET /api/admin/buyers/search`
+
+| Query    | Required | Notes                                            |
+| -------- | -------- | ------------------------------------------------ |
+| `q`      | **yes**  | Case-insensitive partial match on email or phone |
+| `status` | no       | `active`, `suspended` or `deleted`               |
+| `page`   | no       |                                                  |
+| `limit`  | no       |                                                  |
+
+- **200**: `Users matching "ama"`, buyers only, plus `meta`
+- **400**: `{ "q": "Search term \"q\" is required" }`
 
 #### `GET /api/admin/buyers/:id`
 
@@ -347,7 +386,19 @@ Accepts `page` and `limit`. It does **not** accept `role`.
 - **404**: `"Buyer <id> not found"`. This is also returned when the id exists
   but belongs to a seller or admin.
 
-To suspend a buyer use `PATCH /api/admin/users/:id/status`.
+#### `PATCH /api/admin/buyers/:id/status`
+
+Same body and rules as `PATCH /users/:id/status`, but only for buyers.
+
+```json
+{ "status": "suspended" }
+```
+
+- **200**: `"Buyer suspended"` / `"Buyer active"` / `"Buyer deleted"`, `data` is
+  the updated User
+- **400**: invalid status, or `"You cannot change your own status"`
+- **404**: `"Buyer <id> not found"`, also when the id is a seller or admin, in
+  which case nothing is changed
 
 ---
 
@@ -355,7 +406,14 @@ To suspend a buyer use `PATCH /api/admin/users/:id/status`.
 
 #### `GET /api/admin/sellers`
 
+| Query                | Notes                                               |
+| -------------------- | --------------------------------------------------- |
+| `verificationStatus` | optional: `pending`, `approved` or `rejected`       |
+| `q`                  | optional: case-insensitive partial match on shop name |
+| `page` / `limit`     |                                                     |
+
 - **200**: `"Sellers retrieved"`, array of Seller with `user`, plus `meta`
+- **400**: `{ "verificationStatus": "verificationStatus must be one of: pending, approved, rejected" }`
 
 #### `GET /api/admin/sellers/pending`
 
@@ -365,7 +423,7 @@ The verification queue: sellers with `verificationStatus: "pending"`.
 
 #### `GET /api/admin/sellers/:id`
 
-- **200**: `"Seller retrieved"` (with `user`)
+- **200**: `"Seller retrieved"`, with `user` and the `listings` breakdown
 - **400** / **404**: the 404 message is `"Seller <id> not found"`
 
 #### `PATCH /api/admin/sellers/:id/approve`
@@ -374,6 +432,7 @@ No request body.
 
 - **200**: `"Seller approved"`, `data` is the updated Seller (with `user`)
 - **404**: `"Seller <id> not found"`
+- **409**: `"Seller is already approved"`
 
 #### `PATCH /api/admin/sellers/:id/reject`
 
@@ -381,9 +440,25 @@ No request body.
 
 - **200**: `"Seller rejected"`, `data.verificationStatus` is `"rejected"`
 - **404**: `"Seller <id> not found"`
+- **409**: `"Seller is already rejected"`
 
-> Approve and reject can be re-run: approving an already approved seller
-> succeeds and returns the same record.
+Rejecting an **approved** seller is allowed: it revokes their verification.
+Approving a rejected seller is allowed too.
+
+#### `PATCH /api/admin/sellers/:id/status`
+
+Suspend, reinstate or soft-delete the **account** behind a seller. The seller's
+verification is left as it is, so a reinstated seller does not need
+re-approving.
+
+```json
+{ "status": "suspended" }
+```
+
+- **200**: `"Seller suspended"` / `"Seller active"` / `"Seller deleted"`, `data`
+  is the Seller with its updated `user`
+- **400**: invalid status, or `"You cannot change your own status"`
+- **404**: `"Seller <id> not found"`, or `"Seller <id> has no linked account"`
 
 ---
 
@@ -391,7 +466,20 @@ No request body.
 
 #### `GET /api/admin/listings`
 
+All filters are optional and can be combined.
+
+| Query            | Notes                                                    |
+| ---------------- | -------------------------------------------------------- |
+| `status`         | `pending`, `approved`, `rejected` or `removed`           |
+| `sellerId`       | a seller's id: that seller's listings only               |
+| `categoryId`     | a category's id                                          |
+| `q`              | case-insensitive partial match on the listing name      |
+| `page` / `limit` |                                                          |
+
 - **200**: `"Listings retrieved"`, array of Listing, plus `meta`
+- **400**: bad filter, e.g.
+  `{ "status": "status must be one of: pending, approved, rejected, removed" }`
+  `{ "sellerId": "sellerId must be a valid UUID" }`
 
 #### `GET /api/admin/listings/pending`
 
@@ -401,28 +489,63 @@ The approval queue: listings with `approvalStatus: "pending"`.
 
 #### `GET /api/admin/listings/:id`
 
-- **200**: `"Listing retrieved"`
+- **200**: `"Listing retrieved"`, with the seller's `user` attached
 - **400** / **404**: the 404 message is `"Listing <id> not found"`
+
+#### Moderation rules
+
+A listing can only move along these paths. Anything else is a **409**, and
+nothing is changed.
+
+| Action  | Allowed from                     | Result     | Use for                              |
+| ------- | -------------------------------- | ---------- | ------------------------------------ |
+| approve | `pending`, `rejected`, `removed` | `approved` | Publish, or reinstate a taken-down one |
+| reject  | `pending`                        | `rejected` | Turn down a new listing              |
+| remove  | `approved`                       | `removed`  | Take down a live listing             |
+
+409 messages:
+
+| Situation                              | `message`                                   |
+| -------------------------------------- | ------------------------------------------- |
+| Already in the target state            | `Listing is already approved` (etc.)        |
+| Rejecting a live or removed listing    | `Cannot reject a listing that is approved`  |
+| Removing one that was never published  | `Cannot remove a listing that is pending`   |
+
+> Use the listing's `approvalStatus` to decide which buttons to show: pending
+> gets Approve / Reject, approved gets Remove, and rejected or removed gets
+> Approve.
+
+Every successful moderation sets `moderatedBy` and `moderatedAt`, and returns
+the updated Listing with its seller's `user`.
 
 #### `PATCH /api/admin/listings/:id/approve`
 
-No body. **200**: `"Listing approved"` · **404**: `"Listing <id> not found"`
+No body. Clears any earlier `moderationNote`.
+
+- **200**: `"Listing approved"`
+- **404**: `"Listing <id> not found"` · **409**: see Moderation rules
 
 #### `PATCH /api/admin/listings/:id/reject`
 
-No body. **200**: `"Listing rejected"` · **404**: `"Listing <id> not found"`
+Optional body. The reason is stored as `moderationNote` for the seller to see.
+
+```json
+{ "reason": "Photos are blurry, please re-upload" }
+```
+
+- **200**: `"Listing rejected"`
+- **400**: `{ "reason": "reason cannot exceed 500 characters" }`
+- **404**: `"Listing <id> not found"` · **409**: see Moderation rules
 
 #### `PATCH /api/admin/listings/:id/remove`
 
-Takes a published listing down. No body.
+Takes a live listing down. Same optional `{ "reason": "..." }` body as reject.
 
-**200**: `"Listing removed"` · **404**: `"Listing <id> not found"`
+- **200**: `"Listing removed"`
+- **400**: reason too long
+- **404**: `"Listing <id> not found"` · **409**: see Moderation rules
 
-| Action  | Resulting `approvalStatus` | Use for                        |
-| ------- | -------------------------- | ------------------------------ |
-| approve | `approved`                 | Publish a pending listing      |
-| reject  | `rejected`                 | Turn down a pending listing    |
-| remove  | `removed`                  | Take down a published listing  |
+A blank or whitespace-only reason is stored as `null`.
 
 ---
 
@@ -465,14 +588,17 @@ No body. Records `reviewedBy` / `reviewedAt` the same way.
 | GET    | `/users`                | Users retrieved              |
 | GET    | `/users/search`         | Users matching "…"           |
 | GET    | `/users/:id`            | User retrieved               |
-| PATCH  | `/users/:id/status`     | User suspended / User active |
+| PATCH  | `/users/:id/status`     | User suspended / active / deleted |
 | GET    | `/buyers`               | Buyers retrieved             |
+| GET    | `/buyers/search`        | Users matching "…"           |
 | GET    | `/buyers/:id`           | Buyer retrieved              |
+| PATCH  | `/buyers/:id/status`    | Buyer suspended / active / deleted |
 | GET    | `/sellers`              | Sellers retrieved            |
 | GET    | `/sellers/pending`      | Pending sellers retrieved    |
 | GET    | `/sellers/:id`          | Seller retrieved             |
 | PATCH  | `/sellers/:id/approve`  | Seller approved              |
 | PATCH  | `/sellers/:id/reject`   | Seller rejected              |
+| PATCH  | `/sellers/:id/status`   | Seller suspended / active / deleted |
 | GET    | `/listings`             | Listings retrieved           |
 | GET    | `/listings/pending`     | Pending listings retrieved   |
 | GET    | `/listings/:id`         | Listing retrieved            |

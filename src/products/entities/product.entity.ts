@@ -39,6 +39,17 @@ export class Product {
   @Column({ type: 'varchar', default: 'pending' })
   approvalStatus!: ListingApprovalStatus;
 
+  // Why an admin rejected or removed it; cleared again on approval
+  @Column({ type: 'text', nullable: true })
+  moderationNote!: string | null;
+
+  // The admin who last approved, rejected or removed it, and when
+  @Column({ type: 'uuid', nullable: true })
+  moderatedBy!: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  moderatedAt!: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

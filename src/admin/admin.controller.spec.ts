@@ -19,6 +19,9 @@ describe('AdminController', () => {
       updateUserStatus: jest.fn(),
       listBuyers: jest.fn(),
       getBuyer: jest.fn(),
+      searchBuyers: jest.fn(),
+      updateBuyerStatus: jest.fn(),
+      updateSellerStatus: jest.fn(),
       listSellers: jest.fn(),
       listPendingSellers: jest.fn(),
       getSeller: jest.fn(),
@@ -80,6 +83,51 @@ describe('AdminController', () => {
     );
   });
 
+  it.each(['updateBuyerStatus', 'updateSellerStatus'] as const)(
+    '%s unwraps the status DTO and passes the acting admin',
+    (route) => {
+      void controller[route](
+        'x1',
+        { status: 'suspended' },
+        { sub: 'admin-1', role: 'ADMIN' },
+      );
+
+      expect(service[route]).toHaveBeenCalledWith('x1', 'suspended', 'admin-1');
+    },
+  );
+
+  it('approveListing passes the acting admin', () => {
+    void controller.approveListing('l1', { sub: 'admin-1', role: 'ADMIN' });
+
+    expect(service.approveListing).toHaveBeenCalledWith('l1', 'admin-1');
+  });
+
+  it.each(['rejectListing', 'removeListing'] as const)(
+    '%s passes the acting admin and the reason',
+    (route) => {
+      void controller[route](
+        'l1',
+        { reason: 'blurry photos' },
+        { sub: 'admin-1', role: 'ADMIN' },
+      );
+
+      expect(service[route]).toHaveBeenCalledWith(
+        'l1',
+        'admin-1',
+        'blurry photos',
+      );
+    },
+  );
+
+  it.each(['rejectListing', 'removeListing'] as const)(
+    '%s works without a reason',
+    (route) => {
+      void controller[route]('l1', {}, { sub: 'admin-1', role: 'ADMIN' });
+
+      expect(service[route]).toHaveBeenCalledWith('l1', 'admin-1', undefined);
+    },
+  );
+
   it.each(['resolveReport', 'dismissReport'] as const)(
     '%s records the acting admin',
     (route) => {
@@ -103,9 +151,7 @@ describe('AdminController', () => {
     ['getListings', [{}], 'listListings'],
     ['getPendingListings', [{}], 'listPendingListings'],
     ['getOneListing', ['l1'], 'getListing'],
-    ['approveListing', ['l1'], 'approveListing'],
-    ['rejectListing', ['l1'], 'rejectListing'],
-    ['removeListing', ['l1'], 'removeListing'],
+    ['searchBuyers', [{ q: 'ama' }], 'searchBuyers'],
     ['getReports', [{}], 'listReports'],
   ])('%s delegates to AdminService.%s', (route, args, method) => {
     (

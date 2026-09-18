@@ -17,11 +17,16 @@ import type { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AdminService } from './admin.service';
 import {
+  ListListingsDto,
   ListReportsDto,
+  ListSellersDto,
   ListUsersDto,
+  ModerationReasonDto,
   PaginationDto,
+  SearchBuyersDto,
   SearchUsersDto,
   UpdateUserStatusDto,
+  UserStatusFilterDto,
 } from './dto';
 
 /**
@@ -71,8 +76,13 @@ export class AdminController {
 
   // Buyer Management
   @Get('/buyers')
-  getBuyers(@Query() query: PaginationDto) {
+  getBuyers(@Query() query: UserStatusFilterDto) {
     return this.adminService.listBuyers(query);
+  }
+
+  @Get('/buyers/search')
+  searchBuyers(@Query() query: SearchBuyersDto) {
+    return this.adminService.searchBuyers(query);
   }
 
   @Get('/buyers/:id')
@@ -80,9 +90,19 @@ export class AdminController {
     return this.adminService.getBuyer(id);
   }
 
+  @Patch('/buyers/:id/status')
+  @HttpCode(HttpStatus.OK)
+  updateBuyerStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateUserStatusDto,
+    @CurrentUser() admin?: JwtPayload,
+  ) {
+    return this.adminService.updateBuyerStatus(id, body.status, admin?.sub);
+  }
+
   // Seller Management
   @Get('/sellers')
-  getSellers(@Query() query: PaginationDto) {
+  getSellers(@Query() query: ListSellersDto) {
     return this.adminService.listSellers(query);
   }
 
@@ -108,9 +128,19 @@ export class AdminController {
     return this.adminService.rejectSeller(id);
   }
 
+  @Patch('/sellers/:id/status')
+  @HttpCode(HttpStatus.OK)
+  updateSellerStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateUserStatusDto,
+    @CurrentUser() admin?: JwtPayload,
+  ) {
+    return this.adminService.updateSellerStatus(id, body.status, admin?.sub);
+  }
+
   // Listing Management
   @Get('/listings')
-  getListings(@Query() query: PaginationDto) {
+  getListings(@Query() query: ListListingsDto) {
     return this.adminService.listListings(query);
   }
 
@@ -126,20 +156,31 @@ export class AdminController {
 
   @Patch('/listings/:id/approve')
   @HttpCode(HttpStatus.OK)
-  approveListing(@Param('id', ParseUUIDPipe) id: string) {
-    return this.adminService.approveListing(id);
+  approveListing(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() admin?: JwtPayload,
+  ) {
+    return this.adminService.approveListing(id, admin?.sub);
   }
 
   @Patch('/listings/:id/reject')
   @HttpCode(HttpStatus.OK)
-  rejectListing(@Param('id', ParseUUIDPipe) id: string) {
-    return this.adminService.rejectListing(id);
+  rejectListing(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ModerationReasonDto,
+    @CurrentUser() admin?: JwtPayload,
+  ) {
+    return this.adminService.rejectListing(id, admin?.sub, body?.reason);
   }
 
   @Patch('/listings/:id/remove')
   @HttpCode(HttpStatus.OK)
-  removeListing(@Param('id', ParseUUIDPipe) id: string) {
-    return this.adminService.removeListing(id);
+  removeListing(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: ModerationReasonDto,
+    @CurrentUser() admin?: JwtPayload,
+  ) {
+    return this.adminService.removeListing(id, admin?.sub, body?.reason);
   }
 
   // Report Management

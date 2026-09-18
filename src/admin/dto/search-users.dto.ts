@@ -1,10 +1,10 @@
 import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { USER_ROLES } from '../../common/constants/domain';
 import type { UserRole } from '../../common/constants/domain';
-import { PaginationDto } from './pagination.dto';
+import { UserStatusFilterDto } from './status-filter';
 
-/** ?q= plus optional ?role=, for GET /api/admin/users/search. */
-export class SearchUsersDto extends PaginationDto {
+/** ?q= is required; ?role= and ?status= narrow it. */
+export class SearchUsersDto extends UserStatusFilterDto {
   @IsString()
   @IsNotEmpty({ message: 'Search term "q" is required' })
   q: string;
