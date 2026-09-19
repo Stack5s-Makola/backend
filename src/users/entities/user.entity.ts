@@ -28,4 +28,8 @@ export class User {
 
     @Column({default: 'active'})
     status!: string;
+
+    // Set by POST /api/auth/verify-otp; login refuses an unverified account
+    @Column({default: false})
+    emailVerified!: boolean;
 }
