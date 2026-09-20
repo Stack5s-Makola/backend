@@ -6,12 +6,20 @@ import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { BuyersService } from './buyers.service';
 import { DashboardService } from './dashboard.service';
+import { ListingsService } from './listings.service';
 import { SellersService } from './sellers.service';
 
 @Module({
   imports: [ConfigModule, TypeOrmModule.forFeature([User, Product, Seller])],
   controllers: [AdminController],
-  providers: [AdminService, DashboardService, SellersService],
+  providers: [
+    AdminService,
+    DashboardService,
+    SellersService,
+    BuyersService,
+    ListingsService,
+  ],
 })
 export class AdminModule {}
