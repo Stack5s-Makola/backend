@@ -319,7 +319,7 @@ export class AuthService {
       phone: user.phone ?? null,
       role: normaliseRole(user.role) ?? 'BUYER',
       status: user.status,
-      emailVerified: user.emailVerified,
+      emailVerified: user.emailVerified ?? false,
       createdAt: user.createdAt,
     };
   }

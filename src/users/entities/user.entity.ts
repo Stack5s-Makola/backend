@@ -29,7 +29,10 @@ export class User {
     @Column({default: 'active'})
     status!: string;
 
-    // Set by POST /api/auth/verify-otp; login refuses an unverified account
-    @Column({default: false})
-    emailVerified!: boolean;
+    // Deliberately NOT a @Column: the database has no such column yet, and
+    // declaring one puts it in every query against this table, which breaks
+    // POST /api/users and the admin user endpoints. The auth module reads it,
+    // so it stays declared. See documentation/pending-auth-schema.md before
+    // adding the decorator back.
+    emailVerified?: boolean;
 }
