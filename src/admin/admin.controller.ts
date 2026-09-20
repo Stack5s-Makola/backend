@@ -11,7 +11,9 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AdminService } from './admin.service';
+import { BuyersService } from './buyers.service';
 import { DashboardService } from './dashboard.service';
+import { ListingsService } from './listings.service';
 import { SellersService } from './sellers.service';
 import { AdminLoginDto } from './dto';
 
@@ -27,6 +29,8 @@ export class AdminController {
     private readonly adminService: AdminService,
     private readonly dashboard: DashboardService,
     private readonly sellers: SellersService,
+    private readonly buyers: BuyersService,
+    private readonly listings: ListingsService,
   ) {}
 
   // 200 rather than the 201 Nest gives POST by default: nothing is created.
@@ -50,5 +54,19 @@ export class AdminController {
   @Roles('ADMIN')
   listSellers() {
     return this.sellers.list();
+  }
+
+  @Get('buyers')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  listBuyers() {
+    return this.buyers.list();
+  }
+
+  @Get('listings')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  listListings() {
+    return this.listings.list();
   }
 }

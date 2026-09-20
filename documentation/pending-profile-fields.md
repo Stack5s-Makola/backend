@@ -23,9 +23,10 @@ properties with **no `@Column`**, so TypeORM never puts them in a query:
 
 - `User.fullName` and `User.avatarUrl` in `src/users/entities/user.entity.ts`
 - `Seller.logoUrl` in `src/sellers/entities/seller.entity.ts`
+- `Product.imageUrl` in `src/products/entities/product.entity.ts`
 
-`src/admin/sellers.service.ts` already reads all three, so the values appear in
-the API the moment the columns are real. Until then they are `undefined`, and
+`src/admin/sellers.service.ts` and `src/admin/listings.service.ts` already read
+all four, so the values appear in the API the moment the columns are real. Until then they are `undefined`, and
 the service maps that to `null`.
 
 Note `SellersService.ownersFor` loads the whole user row rather than using
@@ -42,6 +43,9 @@ ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "avatarUrl" character varying;
 
 -- The shop's own logo, preferred over the owner's avatar in the admin table.
 ALTER TABLE "sellers" ADD COLUMN IF NOT EXISTS "logoUrl" character varying;
+
+-- The listing's photo, shown in the admin listings table.
+ALTER TABLE "product" ADD COLUMN IF NOT EXISTS "imageUrl" character varying;
 ```
 
 ## Turning it on
@@ -62,3 +66,27 @@ Seller identity is awkward for a second reason: `sellers.userId` is a
 `character varying` while `users.id` is a `uuid`. `SellersService` matches them
 in memory rather than joining, so one malformed value cannot empty the table.
 Worth a migration of its own if the tables are ever joined in SQL.
+
+## The other listings table
+
+`product_listings` exists in the database with exactly the columns this tab
+wants, including the image:
+
+```
+product_listings: id, sellerId, title, imageUrl, status, createdAt
+```
+
+Nothing in the code uses it. Both `ProductListing.entity.ts` and
+`ProductImage.entity.ts` under `src/listings/entities/` are empty files, and
+`ListingsService` in `src/listings/` is an empty class.
+
+`GET /api/admin/listings` reads `product` instead, because that is the table
+with an entity, the moderation columns (`approvalStatus`, `moderationNote`,
+`moderatedBy`, `moderatedAt`), the `pending / approved / rejected / removed`
+vocabulary in `src/common/constants/domain.ts`, and the rows the dashboard's
+`totalListings` counts.
+
+Both tables are empty, so no data settles which one is meant to win. If
+`product_listings` is the real destination, this tab and the dashboard count
+both need pointing at it; if it is abandoned, it should be dropped so it stops
+looking like the answer.

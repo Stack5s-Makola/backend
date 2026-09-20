@@ -5,7 +5,9 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { BuyersService } from './buyers.service';
 import { DashboardService } from './dashboard.service';
+import { ListingsService } from './listings.service';
 import { SellersService } from './sellers.service';
 import { HttpExceptionFilter } from '../common/filters/http-exception.filter';
 import { ResponseInterceptor } from '../common/interceptors/response.interceptor';
@@ -47,6 +49,8 @@ describe('POST /admin/login', () => {
         // The dashboard has its own spec; the controller just needs it to exist.
         { provide: DashboardService, useValue: { totals: jest.fn() } },
         { provide: SellersService, useValue: { list: jest.fn() } },
+        { provide: BuyersService, useValue: { list: jest.fn() } },
+        { provide: ListingsService, useValue: { list: jest.fn() } },
       ],
     }).compile();
 

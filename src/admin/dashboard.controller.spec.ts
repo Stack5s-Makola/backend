@@ -8,7 +8,9 @@ import { HttpExceptionFilter } from '../common/filters/http-exception.filter';
 import { ResponseInterceptor } from '../common/interceptors/response.interceptor';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { BuyersService } from './buyers.service';
 import { DashboardService } from './dashboard.service';
+import { ListingsService } from './listings.service';
 import { SellersService } from './sellers.service';
 
 const SECRET = 'test-secret';
@@ -45,6 +47,36 @@ const SELLERS = {
   ],
 };
 
+const BUYERS = {
+  message: 'Buyers retrieved',
+  data: [
+    {
+      id: '11111111-1111-4111-8111-111111111111',
+      name: null,
+      email: 'kofi@example.com',
+      phone: '0241234567',
+      profilePicture: null,
+      joined: '2026-03-04T09:30:00.000Z',
+      status: 'active',
+    },
+  ],
+};
+
+const LISTINGS = {
+  message: 'Listings retrieved',
+  data: [
+    {
+      id: 'cccccccc-1111-4111-8111-111111111111',
+      product: 'Kente cloth',
+      seller: 'Makola Fabrics',
+      location: { latitude: 5.55, longitude: -0.2 },
+      date: '2026-05-06T11:00:00.000Z',
+      status: 'pending',
+      image: null,
+    },
+  ],
+};
+
 /** Drives the guarded admin routes over HTTP to check who gets through. */
 describe('guarded admin routes', () => {
   let app: INestApplication;
@@ -59,6 +91,8 @@ describe('guarded admin routes', () => {
         { provide: ConfigService, useValue: { get: () => SECRET } },
         { provide: DashboardService, useValue: { totals: () => TOTALS } },
         { provide: SellersService, useValue: { list: () => SELLERS } },
+        { provide: BuyersService, useValue: { list: () => BUYERS } },
+        { provide: ListingsService, useValue: { list: () => LISTINGS } },
       ],
     }).compile();
 
@@ -133,5 +167,35 @@ describe('guarded admin routes', () => {
 
   it('401 on the sellers list with no token', async () => {
     expect((await get(undefined, '/admin/sellers')).status).toBe(401);
+  });
+
+  it('200 with the buyers list for an admin token', async () => {
+    const { status, body } = await get(tokenFor('ADMIN'), '/admin/buyers');
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true, data: BUYERS.data });
+  });
+
+  it('403 on the buyers list for a signed-in seller', async () => {
+    expect((await get(tokenFor('SELLER'), '/admin/buyers')).status).toBe(403);
+  });
+
+  it('401 on the buyers list with no token', async () => {
+    expect((await get(undefined, '/admin/buyers')).status).toBe(401);
+  });
+
+  it('200 with the listings for an admin token', async () => {
+    const { status, body } = await get(tokenFor('ADMIN'), '/admin/listings');
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true, data: LISTINGS.data });
+  });
+
+  it('403 on the listings for a signed-in buyer', async () => {
+    expect((await get(tokenFor('BUYER'), '/admin/listings')).status).toBe(403);
+  });
+
+  it('401 on the listings with no token', async () => {
+    expect((await get(undefined, '/admin/listings')).status).toBe(401);
   });
 });
