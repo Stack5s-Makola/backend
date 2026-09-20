@@ -9,6 +9,7 @@ import { ResponseInterceptor } from '../common/interceptors/response.interceptor
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { DashboardService } from './dashboard.service';
+import { SellersService } from './sellers.service';
 
 const SECRET = 'test-secret';
 
@@ -29,8 +30,23 @@ const TOTALS = {
   },
 };
 
-/** Drives GET /admin/dashboard over HTTP to check who the guards let through. */
-describe('GET /admin/dashboard', () => {
+const SELLERS = {
+  message: 'Sellers retrieved',
+  data: [
+    {
+      id: 'aaaaaaaa-1111-4111-8111-111111111111',
+      name: null,
+      email: 'ama@example.com',
+      profilePicture: null,
+      businessName: 'Makola Fabrics',
+      location: { latitude: 5.55, longitude: -0.2 },
+      status: 'approved',
+    },
+  ],
+};
+
+/** Drives the guarded admin routes over HTTP to check who gets through. */
+describe('guarded admin routes', () => {
   let app: INestApplication;
   let jwt: JwtService;
 
@@ -42,6 +58,7 @@ describe('GET /admin/dashboard', () => {
         AdminService,
         { provide: ConfigService, useValue: { get: () => SECRET } },
         { provide: DashboardService, useValue: { totals: () => TOTALS } },
+        { provide: SellersService, useValue: { list: () => SELLERS } },
       ],
     }).compile();
 
@@ -57,8 +74,8 @@ describe('GET /admin/dashboard', () => {
     await app.close();
   });
 
-  const get = async (token?: string) => {
-    const call = request(app.getHttpServer()).get('/admin/dashboard');
+  const get = async (token?: string, path = '/admin/dashboard') => {
+    const call = request(app.getHttpServer()).get(path);
     const res = await (token
       ? call.set('Authorization', `Bearer ${token}`)
       : call);
@@ -101,5 +118,20 @@ describe('GET /admin/dashboard', () => {
 
   it('403 for a signed-in seller', async () => {
     expect((await get(tokenFor('SELLER'))).status).toBe(403);
+  });
+
+  it('200 with the sellers list for an admin token', async () => {
+    const { status, body } = await get(tokenFor('ADMIN'), '/admin/sellers');
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true, data: SELLERS.data });
+  });
+
+  it('403 on the sellers list for a signed-in buyer', async () => {
+    expect((await get(tokenFor('BUYER'), '/admin/sellers')).status).toBe(403);
+  });
+
+  it('401 on the sellers list with no token', async () => {
+    expect((await get(undefined, '/admin/sellers')).status).toBe(401);
   });
 });
