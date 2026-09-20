@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AdminController } from './admin.controller';
@@ -18,6 +19,7 @@ interface Envelope {
 
 const EMAIL = 'superadmin@example.com';
 const PASSWORD = 'correct-horse-battery';
+const SECRET = 'test-secret';
 
 /**
  * Drives POST /admin/login over HTTP with the same pipe, interceptor and
@@ -31,9 +33,11 @@ describe('POST /admin/login', () => {
     const env: Record<string, string> = {
       SUPER_ADMIN_EMAIL: EMAIL,
       SUPER_ADMIN_PASSWORD: PASSWORD,
+      JWT_SECRET: SECRET,
     };
 
     const module = await Test.createTestingModule({
+      imports: [JwtModule.register({ secret: SECRET })],
       controllers: [AdminController],
       providers: [
         AdminService,
@@ -64,11 +68,19 @@ describe('POST /admin/login', () => {
     const { status, body } = await login({ email: EMAIL, password: PASSWORD });
 
     expect(status).toBe(200);
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       success: true,
       message: 'Login successful',
-      data: { email: EMAIL, role: 'ADMIN' },
+      data: { admin: { email: EMAIL, role: 'ADMIN' } },
     });
+  });
+
+  it('returns a bearer token in the body', async () => {
+    const { body } = await login({ email: EMAIL, password: PASSWORD });
+    const { accessToken } = body.data as { accessToken: string };
+
+    // header.payload.signature
+    expect(accessToken.split('.')).toHaveLength(3);
   });
 
   it('200 when the email arrives upper-cased or padded', async () => {
