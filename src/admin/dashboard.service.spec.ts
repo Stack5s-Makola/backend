@@ -3,15 +3,25 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { In } from 'typeorm';
 import { Product } from '../products/entities/product.entity';
 import { User } from '../users/entities/user.entity';
+import { ActivityService } from './activity.service';
 import { DashboardService } from './dashboard.service';
+
+const FEED = [
+  {
+    message: 'Makola Fabrics registered as a seller',
+    at: '2026-09-19T08:00:00.000Z',
+  },
+];
 
 describe('DashboardService.totals', () => {
   const userCount = jest.fn();
   const productCount = jest.fn();
+  const recent = jest.fn();
   let service: DashboardService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    recent.mockResolvedValue(FEED);
 
     const module = await Test.createTestingModule({
       providers: [
@@ -21,6 +31,7 @@ describe('DashboardService.totals', () => {
           provide: getRepositoryToken(Product),
           useValue: { count: productCount },
         },
+        { provide: ActivityService, useValue: { recent } },
       ],
     }).compile();
 
@@ -42,6 +53,7 @@ describe('DashboardService.totals', () => {
         totalSellers: 12,
         totalBuyers: 27,
         totalListings: 93,
+        recentActivities: FEED,
       },
     });
   });
@@ -80,6 +92,7 @@ describe('DashboardService.totals', () => {
       totalSellers: 0,
       totalBuyers: 0,
       totalListings: 0,
+      recentActivities: FEED,
     });
   });
 });
