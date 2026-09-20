@@ -3,8 +3,11 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { validationPipe } from './common/validation';
+import { widenConnectTimeout } from './common/network';
 
 async function bootstrap() {
+  widenConnectTimeout();
+
   const app = await NestFactory.create(AppModule);
 
   app.setGlobalPrefix('api');

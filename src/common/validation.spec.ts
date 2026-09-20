@@ -1,10 +1,20 @@
 import { BadRequestException } from '@nestjs/common';
+import { IsIn } from 'class-validator';
 import { validationPipe } from './validation';
-import { UpdateUserStatusDto } from '../admin/dto';
+import { USER_STATUSES } from './constants/domain';
+import type { UserStatus } from './constants/domain';
+
+/** Stand-in payload class, so this pipe test owns its own fixture. */
+class StatusDto {
+  @IsIn(USER_STATUSES, {
+    message: `status must be one of: ${USER_STATUSES.join(', ')}`,
+  })
+  status: UserStatus;
+}
 
 const metadata = {
   type: 'body' as const,
-  metatype: UpdateUserStatusDto,
+  metatype: StatusDto,
   data: '',
 };
 

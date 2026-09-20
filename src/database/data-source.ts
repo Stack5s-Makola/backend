@@ -1,7 +1,10 @@
 import { config } from 'dotenv';
 
-config({ quiet: true });
 import { DataSource } from 'typeorm';
+import { widenConnectTimeout } from '../common/network';
+
+config({ quiet: true });
+widenConnectTimeout();
 
 /**
  * DataSource used by the TypeORM CLI for migrations.

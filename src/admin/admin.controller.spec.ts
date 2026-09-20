@@ -1,163 +1,138 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { Reflector } from '@nestjs/core';
-import { ROLES_KEY } from '../common/decorators/roles.decorator';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
+import { INestApplication } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
+import { Test } from '@nestjs/testing';
+import request from 'supertest';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { DashboardService } from './dashboard.service';
+import { SellersService } from './sellers.service';
+import { HttpExceptionFilter } from '../common/filters/http-exception.filter';
+import { ResponseInterceptor } from '../common/interceptors/response.interceptor';
+import { validationPipe } from '../common/validation';
 
-describe('AdminController', () => {
-  let controller: AdminController;
-  let service: Record<string, jest.Mock>;
+/** The envelope the response interceptor and exception filter both emit. */
+interface Envelope {
+  success: boolean;
+  message: string;
+  data: unknown;
+  errors?: Record<string, string>;
+}
 
-  beforeEach(async () => {
-    service = {
-      getDashboard: jest.fn(),
-      listUsers: jest.fn(),
-      searchUsers: jest.fn(),
-      getUser: jest.fn(),
-      updateUserStatus: jest.fn(),
-      listBuyers: jest.fn(),
-      getBuyer: jest.fn(),
-      searchBuyers: jest.fn(),
-      updateBuyerStatus: jest.fn(),
-      updateSellerStatus: jest.fn(),
-      listSellers: jest.fn(),
-      listPendingSellers: jest.fn(),
-      getSeller: jest.fn(),
-      approveSeller: jest.fn(),
-      rejectSeller: jest.fn(),
-      listListings: jest.fn(),
-      listPendingListings: jest.fn(),
-      getListing: jest.fn(),
-      approveListing: jest.fn(),
-      rejectListing: jest.fn(),
-      removeListing: jest.fn(),
-      listReports: jest.fn(),
-      resolveReport: jest.fn(),
-      dismissReport: jest.fn(),
+const EMAIL = 'superadmin@example.com';
+const PASSWORD = 'correct-horse-battery';
+const SECRET = 'test-secret';
+
+/**
+ * Drives POST /admin/login over HTTP with the same pipe, interceptor and
+ * filter main.ts installs, so the status codes here are the ones a client
+ * actually sees.
+ */
+describe('POST /admin/login', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    const env: Record<string, string> = {
+      SUPER_ADMIN_EMAIL: EMAIL,
+      SUPER_ADMIN_PASSWORD: PASSWORD,
+      JWT_SECRET: SECRET,
     };
 
-    const module: TestingModule = await Test.createTestingModule({
+    const module = await Test.createTestingModule({
+      imports: [JwtModule.register({ secret: SECRET })],
       controllers: [AdminController],
-      providers: [{ provide: AdminService, useValue: service }],
-    })
-      // The guards are exercised in their own specs; here they are stubbed
-      // out so the routing and delegation can be checked in isolation.
-      .overrideGuard(JwtAuthGuard)
-      .useValue({ canActivate: () => true })
-      .overrideGuard(RolesGuard)
-      .useValue({ canActivate: () => true })
-      .compile();
+      providers: [
+        AdminService,
+        { provide: ConfigService, useValue: { get: (k: string) => env[k] } },
+        // The dashboard has its own spec; the controller just needs it to exist.
+        { provide: DashboardService, useValue: { totals: jest.fn() } },
+        { provide: SellersService, useValue: { list: jest.fn() } },
+      ],
+    }).compile();
 
-    controller = module.get(AdminController);
+    app = module.createNestApplication();
+    app.useGlobalPipes(validationPipe);
+    app.useGlobalInterceptors(new ResponseInterceptor());
+    app.useGlobalFilters(new HttpExceptionFilter());
+    await app.init();
   });
 
-  it('is defined', () => {
-    expect(controller).toBeDefined();
+  afterAll(async () => {
+    await app.close();
   });
 
-  it('is restricted to admins', () => {
-    const roles = new Reflector().get<string[]>(ROLES_KEY, AdminController);
-    expect(roles).toEqual(['ADMIN']);
+  const login = async (body: Record<string, unknown>) => {
+    const res = await request(app.getHttpServer())
+      .post('/admin/login')
+      .send(body);
+
+    return { status: res.status, body: res.body as Envelope };
+  };
+
+  it('200 on the right credentials', async () => {
+    const { status, body } = await login({ email: EMAIL, password: PASSWORD });
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({
+      success: true,
+      message: 'Login successful',
+      data: { admin: { email: EMAIL, role: 'ADMIN' } },
+    });
   });
 
-  it('passes the whole query object to the search, not just the term', () => {
-    const query = { q: 'ama', role: 'BUYER' as const, page: 2 };
-    void controller.searchUser(query);
+  it('returns a bearer token in the body', async () => {
+    const { body } = await login({ email: EMAIL, password: PASSWORD });
+    const { accessToken } = body.data as { accessToken: string };
 
-    expect(service.searchUsers).toHaveBeenCalledWith(query);
+    // header.payload.signature
+    expect(accessToken.split('.')).toHaveLength(3);
   });
 
-  it('unwraps the status DTO and passes the acting admin', () => {
-    void controller.updateUserStatus(
-      'u1',
-      { status: 'suspended' },
-      { sub: 'admin-1', role: 'ADMIN' },
-    );
+  it('200 when the email arrives upper-cased or padded', async () => {
+    const { status } = await login({
+      email: `  ${EMAIL.toUpperCase()} `,
+      password: PASSWORD,
+    });
 
-    expect(service.updateUserStatus).toHaveBeenCalledWith(
-      'u1',
-      'suspended',
-      'admin-1',
-    );
+    expect(status).toBe(200);
   });
 
-  it.each(['updateBuyerStatus', 'updateSellerStatus'] as const)(
-    '%s unwraps the status DTO and passes the acting admin',
-    (route) => {
-      void controller[route](
-        'x1',
-        { status: 'suspended' },
-        { sub: 'admin-1', role: 'ADMIN' },
-      );
+  it('401 on an unknown email', async () => {
+    const { status, body } = await login({
+      email: 'someone@else.com',
+      password: PASSWORD,
+    });
 
-      expect(service[route]).toHaveBeenCalledWith('x1', 'suspended', 'admin-1');
-    },
-  );
-
-  it('approveListing passes the acting admin', () => {
-    void controller.approveListing('l1', { sub: 'admin-1', role: 'ADMIN' });
-
-    expect(service.approveListing).toHaveBeenCalledWith('l1', 'admin-1');
+    expect(status).toBe(401);
+    expect(body).toMatchObject({
+      success: false,
+      message: 'No admin account found for that email',
+      data: null,
+    });
   });
 
-  it.each(['rejectListing', 'removeListing'] as const)(
-    '%s passes the acting admin and the reason',
-    (route) => {
-      void controller[route](
-        'l1',
-        { reason: 'blurry photos' },
-        { sub: 'admin-1', role: 'ADMIN' },
-      );
+  it('401 on a wrong password', async () => {
+    const { status, body } = await login({ email: EMAIL, password: 'nope' });
 
-      expect(service[route]).toHaveBeenCalledWith(
-        'l1',
-        'admin-1',
-        'blurry photos',
-      );
-    },
-  );
+    expect(status).toBe(401);
+    expect(body).toMatchObject({ message: 'Incorrect password' });
+  });
 
-  it.each(['rejectListing', 'removeListing'] as const)(
-    '%s works without a reason',
-    (route) => {
-      void controller[route]('l1', {}, { sub: 'admin-1', role: 'ADMIN' });
+  it('400 with a field map when the email is malformed', async () => {
+    const { status, body } = await login({
+      email: 'not-an-email',
+      password: PASSWORD,
+    });
 
-      expect(service[route]).toHaveBeenCalledWith('l1', 'admin-1', undefined);
-    },
-  );
+    expect(status).toBe(400);
+    expect(body.message).toBe('Validation failed');
+    expect(body.errors?.email).toBe('Please provide a valid email address');
+  });
 
-  it.each(['resolveReport', 'dismissReport'] as const)(
-    '%s records the acting admin',
-    (route) => {
-      void controller[route]('r1', { sub: 'admin-1', role: 'ADMIN' });
+  it('400 when the password is missing', async () => {
+    const { status, body } = await login({ email: EMAIL });
 
-      expect(service[route]).toHaveBeenCalledWith('r1', 'admin-1');
-    },
-  );
-
-  it.each([
-    ['dashboard', [], 'getDashboard'],
-    ['getUsers', [{}], 'listUsers'],
-    ['getOneUser', ['u1'], 'getUser'],
-    ['getBuyers', [{}], 'listBuyers'],
-    ['getOneBuyer', ['b1'], 'getBuyer'],
-    ['getSellers', [{}], 'listSellers'],
-    ['getPendingSellers', [{}], 'listPendingSellers'],
-    ['getOneSeller', ['s1'], 'getSeller'],
-    ['approveSeller', ['s1'], 'approveSeller'],
-    ['rejectSeller', ['s1'], 'rejectSeller'],
-    ['getListings', [{}], 'listListings'],
-    ['getPendingListings', [{}], 'listPendingListings'],
-    ['getOneListing', ['l1'], 'getListing'],
-    ['searchBuyers', [{ q: 'ama' }], 'searchBuyers'],
-    ['getReports', [{}], 'listReports'],
-  ])('%s delegates to AdminService.%s', (route, args, method) => {
-    (
-      controller[route as keyof AdminController] as (...a: unknown[]) => unknown
-    )(...args);
-
-    expect(service[method]).toHaveBeenCalledWith(...args);
+    expect(status).toBe(400);
+    expect(body.errors?.password).toBe('Password is required');
   });
 });
