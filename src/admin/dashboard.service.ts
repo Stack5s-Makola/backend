@@ -4,6 +4,7 @@ import { In, Repository } from 'typeorm';
 import { roleVariants } from '../common/constants/domain';
 import { Product } from '../products/entities/product.entity';
 import { User } from '../users/entities/user.entity';
+import { ActivityService } from './activity.service';
 
 @Injectable()
 export class DashboardService {
@@ -12,6 +13,7 @@ export class DashboardService {
     private readonly users: Repository<User>,
     @InjectRepository(Product)
     private readonly products: Repository<Product>,
+    private readonly activity: ActivityService,
   ) {}
 
   /**
@@ -24,19 +26,29 @@ export class DashboardService {
    *
    * A listing is a product row; every one is counted regardless of approval
    * state, so this is the whole catalogue rather than what buyers can see.
+   *
+   * The recent activity feed rides along on the same response, so the first
+   * tab loads in one request.
    */
   async totals() {
-    const [totalUsers, totalSellers, totalBuyers, totalListings] =
+    const [totalUsers, totalSellers, totalBuyers, totalListings, recent] =
       await Promise.all([
         this.users.count(),
         this.users.count({ where: { role: In(roleVariants('SELLER')) } }),
         this.users.count({ where: { role: In(roleVariants('BUYER')) } }),
         this.products.count(),
+        this.activity.recent(),
       ]);
 
     return {
       message: 'Dashboard totals retrieved',
-      data: { totalUsers, totalSellers, totalBuyers, totalListings },
+      data: {
+        totalUsers,
+        totalSellers,
+        totalBuyers,
+        totalListings,
+        recentActivities: recent,
+      },
     };
   }
 }

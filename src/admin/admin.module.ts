@@ -6,6 +6,7 @@ import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { ActivityService } from './activity.service';
 import { BuyersService } from './buyers.service';
 import { DashboardService } from './dashboard.service';
 import { ListingsService } from './listings.service';
@@ -16,6 +17,7 @@ import { SellersService } from './sellers.service';
   controllers: [AdminController],
   providers: [
     AdminService,
+    ActivityService,
     DashboardService,
     SellersService,
     BuyersService,
