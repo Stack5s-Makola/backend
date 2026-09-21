@@ -12,6 +12,7 @@ import { ReviewsModule } from './reviews/reviews.module';
 import { SavedModule } from './saved/saved.module';
 import { SearchModule } from './search/search.module';
 import { SyncModule } from './sync/sync.module';
+import { AdminModule } from './admin/admin.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { EmailModule } from './email/email.module';
 // import { OtpModule } from './otp/otp.module';
@@ -32,6 +33,7 @@ import { RegisterModule } from './register/register.module';
     SavedModule, 
     SearchModule, 
     SyncModule, 
+    AdminModule, 
     UploadsModule, 
     EmailModule, 
     // OtpModule,

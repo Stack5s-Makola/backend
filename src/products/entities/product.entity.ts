@@ -50,6 +50,14 @@ export class Product {
   @Column({ type: 'timestamptz', nullable: true })
   moderatedAt!: Date | null;
 
+  // Deliberately NOT a @Column: `product` has no image column yet, and
+  // declaring one puts it in every query against this table. Declared so the
+  // admin listings table can read it once a migration adds it - see
+  // documentation/pending-profile-fields.md.
+
+  /** The listing's photo, as a Cloudinary URL like the uploads module returns. */
+  imageUrl?: string;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 

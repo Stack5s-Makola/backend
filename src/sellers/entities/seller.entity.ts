@@ -1,10 +1,15 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import {
+  Entity,
+  PrimaryGeneratedColumn,
+  Column,
+  CreateDateColumn,
+  UpdateDateColumn,
+} from 'typeorm';
 import { Product } from '../../products/entities/product.entity';
 import { OneToMany } from 'typeorm';
 
 @Entity('sellers')
 export class Seller {
-
   // the ! is neccessary to let the compiler to forget the missing initial values since typeScript expect every propertyto have initial values
 
   @PrimaryGeneratedColumn('uuid')
@@ -13,10 +18,10 @@ export class Seller {
   @Column()
   userId!: string;
 
-  @Column({unique: true})
+  @Column({ unique: true })
   shopName!: string;
 
-  @Column({nullable: true})
+  @Column({ nullable: true })
   description!: string;
 
   @CreateDateColumn()
@@ -25,7 +30,7 @@ export class Seller {
   @UpdateDateColumn()
   updatedAt!: Date;
 
-  @Column({default: 'pending'})
+  @Column({ default: 'pending' })
   verificationStatus!: string;
 
   @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
@@ -34,6 +39,14 @@ export class Seller {
   @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
   longitude?: number;
 
-  @OneToMany(() => Product, product => product.seller)
+  // Deliberately NOT a @Column: `sellers` has no such column yet, and
+  // declaring one puts it in every query against this table. Declared so the
+  // admin sellers table can read it once a migration adds it - see
+  // documentation/pending-profile-fields.md.
+
+  /** The shop's own logo, shown in the admin sellers table ahead of the owner's avatar. */
+  logoUrl?: string;
+
+  @OneToMany(() => Product, (product) => product.seller)
   products!: Product[];
 }

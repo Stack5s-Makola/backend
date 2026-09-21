@@ -2,6 +2,9 @@ import { config } from 'dotenv';
 import { DataSource } from 'typeorm';
 import { widenConnectTimeout } from '../common/network';
 
+import { DataSource } from 'typeorm';
+import { widenConnectTimeout } from '../common/network';
+
 config({ quiet: true });
 widenConnectTimeout();
 
