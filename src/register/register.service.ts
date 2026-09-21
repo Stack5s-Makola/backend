@@ -1,6 +1,5 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { DataSource, QueryFailedError } from 'typeorm';
@@ -24,7 +23,6 @@ export class RegisterService {
     @InjectDataSource() private readonly db: DataSource,
     private readonly otp: OtpService,
     private readonly jwt: JwtService,
-    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -90,6 +88,8 @@ export class RegisterService {
     // Signed here so the app is logged in straight after sign-up, rather than
     // having to post the password again. Note the account is not verified
     // yet: the token says who they are, not that their email is confirmed.
+    //
+    // No expiry - see SessionTokenModule for why, and what it costs.
     const payload: JwtPayload = { sub: userId, email, role };
 
     return {
@@ -98,7 +98,6 @@ export class RegisterService {
       data: {
         saved: true,
         accessToken: await this.jwt.signAsync(payload),
-        expiresIn: this.config.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '15m',
         user: { id: userId, email, role, emailVerified: false },
       },
     };
