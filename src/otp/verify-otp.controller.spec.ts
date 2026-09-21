@@ -19,12 +19,15 @@ const valid = { email: 'ama@example.com', code: '004213' };
 
 describe('POST /verify-otp', () => {
   const verifyOtp = jest.fn();
+  const resend = jest.fn();
   let app: INestApplication;
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       controllers: [VerifyOtpController],
-      providers: [{ provide: VerificationService, useValue: { verifyOtp } }],
+      providers: [
+        { provide: VerificationService, useValue: { verifyOtp, resend } },
+      ],
     }).compile();
 
     app = module.createNestApplication();
@@ -43,6 +46,10 @@ describe('POST /verify-otp', () => {
     verifyOtp.mockResolvedValue({
       message: 'Email verified',
       data: { verified: true },
+    });
+    resend.mockResolvedValue({
+      message: 'Verification code sent',
+      data: { email: valid.email, expiresAt: '2026-09-21T03:00:00.000Z' },
     });
   });
 
@@ -107,5 +114,48 @@ describe('POST /verify-otp', () => {
     expect(verifyOtp).toHaveBeenCalledWith(
       expect.objectContaining({ code: '004213' }),
     );
+  });
+
+  const postResend = async (body: Record<string, unknown>) => {
+    const res = await request(app.getHttpServer())
+      .post('/verify-otp/resend')
+      .send(body);
+
+    return { status: res.status, body: res.body as Envelope };
+  };
+
+  it('200 on resend, with the new expiry', async () => {
+    const { status, body } = await postResend({ email: valid.email });
+
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      success: true,
+      message: 'Verification code sent',
+      data: { email: valid.email, expiresAt: '2026-09-21T03:00:00.000Z' },
+    });
+  });
+
+  it('resend needs no code in the body', async () => {
+    expect((await postResend({ email: valid.email })).status).toBe(200);
+  });
+
+  it('400 when resend gets a bad email', async () => {
+    const { status, body } = await postResend({ email: 'not-an-email' });
+
+    expect(status).toBe(400);
+    expect(body.errors).toHaveProperty('email');
+  });
+
+  it('400 with the wait when resend is throttled', async () => {
+    resend.mockRejectedValue(
+      new BadRequestException(
+        'Please wait 43 seconds before requesting another code',
+      ),
+    );
+
+    const { status, body } = await postResend({ email: valid.email });
+
+    expect(status).toBe(400);
+    expect(body.message).toContain('43 seconds');
   });
 });

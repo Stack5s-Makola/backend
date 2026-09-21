@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/entities/user.entity';
-import { VerifyOtpDto } from './dto';
+import { RequestOtpDto, VerifyOtpDto } from './dto';
 import { OtpService } from './otp.service';
 
 @Injectable()
@@ -34,6 +34,23 @@ export class VerificationService {
     return {
       message: 'Email verified',
       data: { verified: true },
+    };
+  }
+
+  /**
+   * Sends a fresh code, for the verification screen's "resend" button.
+   *
+   * Issuing consumes whatever code is still outstanding for the address, so
+   * only the newest one ever works - a caller who taps resend twice cannot be
+   * left typing a code that has quietly stopped counting. There is a one
+   * minute cooldown, which comes back as a 400 saying how long to wait.
+   */
+  async resend({ email, purpose }: RequestOtpDto) {
+    const { expiresAt } = await this.otp.issue(email, purpose);
+
+    return {
+      message: 'Verification code sent',
+      data: { email, expiresAt },
     };
   }
 }
