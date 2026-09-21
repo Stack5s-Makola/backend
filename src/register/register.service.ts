@@ -2,6 +2,7 @@ import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { DataSource, QueryFailedError } from 'typeorm';
+import { OtpService } from '../otp/otp.service';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
 import { SetSellerProfileDto } from './dto';
@@ -16,14 +17,18 @@ const SALT_ROUNDS = 10;
 export class RegisterService {
   private readonly logger = new Logger(RegisterService.name);
 
-  constructor(@InjectDataSource() private readonly db: DataSource) {}
+  constructor(
+    @InjectDataSource() private readonly db: DataSource,
+    private readonly otp: OtpService,
+  ) {}
 
   /**
    * Creates a seller in one step: the account, its hashed password and the
-   * shop row.
+   * shop row, then emails a verification code.
    *
-   * Everything happens in one transaction, so a failure part way through
-   * cannot leave an account with no shop, or a shop with no account.
+   * The writes happen in one transaction, so a failure part way through
+   * cannot leave an account with no shop, or a shop with no account. The code
+   * is sent after it commits - see the note on that call below.
    */
   async setSellerProfile(dto: SetSellerProfileDto) {
     const { email, phone, password, shopName, location, role } = dto;
@@ -57,7 +62,27 @@ export class RegisterService {
       throw this.explain(error);
     }
 
-    return { message: 'Seller profile created', data: { saved: true } };
+    // After the commit, and deliberately not inside it: issuing a code writes
+    // its own row and sends an email, and neither should be able to roll back
+    // an account that is already valid.
+    //
+    // A failure here must not fail the request either. The account exists, so
+    // reporting failure would send the client back to retry and collect a 409
+    // on its own email. The app asks for another code at POST /api/otp.
+    try {
+      await this.otp.issue(email, 'email_verification');
+    } catch (error) {
+      this.logger.error(
+        `Account created but no verification code went out to ${email}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+
+    return {
+      message:
+        'Seller profile created. Check your email for a verification code.',
+      data: { saved: true },
+    };
   }
 
   /** Rejects an email, phone or shop name that is already in use. */

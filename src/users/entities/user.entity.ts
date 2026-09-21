@@ -34,17 +34,14 @@ export class User {
   @Column({ default: 'active' })
   status!: string;
 
-  // Deliberately NOT a @Column: the database has no such column yet, and
-  // declaring one puts it in every query against this table, which breaks
-  // POST /api/users and the admin user endpoints. The auth module reads it,
-  // so it stays declared. See documentation/pending-auth-schema.md before
-  // adding the decorator back.
-  emailVerified?: boolean;
+  // The column exists in the database now, so this is persisted again. It
+  // goes true when a verification code is accepted.
+  @Column({ default: false })
+  emailVerified!: boolean;
 
-  // Same story as emailVerified: declared so the admin sellers and users
-  // tables can read them, but with no @Column, because `users` has neither
-  // column yet. They stay undefined until a migration adds them - see
-  // documentation/pending-profile-fields.md.
+  // Declared so the admin sellers and users tables can read them, but with no
+  // @Column, because `users` has neither column yet. They stay undefined
+  // until a migration adds them - see documentation/pending-profile-fields.md.
 
   /** The person's display name, shown in the admin tables. */
   fullName?: string;
