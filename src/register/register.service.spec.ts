@@ -3,6 +3,7 @@ import { Test } from '@nestjs/testing';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { QueryFailedError } from 'typeorm';
+import { OtpService } from '../otp/otp.service';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
 import { SetSellerProfileDto } from './dto';
@@ -31,6 +32,7 @@ describe('RegisterService.setSellerProfile', () => {
   const findOne = jest.fn();
   const insert = jest.fn();
   const transaction = jest.fn();
+  const issue = jest.fn();
   let service: RegisterService;
 
   beforeEach(async () => {
@@ -41,6 +43,7 @@ describe('RegisterService.setSellerProfile', () => {
     transaction.mockImplementation((run: (m: unknown) => Promise<unknown>) =>
       run({ insert }),
     );
+    issue.mockResolvedValue({ email: body.email, expiresAt: new Date() });
 
     const module = await Test.createTestingModule({
       providers: [
@@ -49,6 +52,7 @@ describe('RegisterService.setSellerProfile', () => {
           provide: getDataSourceToken(),
           useValue: { transaction, getRepository: () => ({ findOne }) },
         },
+        { provide: OtpService, useValue: { issue } },
       ],
     }).compile();
 
@@ -56,10 +60,57 @@ describe('RegisterService.setSellerProfile', () => {
   });
 
   it('says yes once the account and shop are written', async () => {
-    await expect(service.setSellerProfile(body)).resolves.toEqual({
-      message: 'Seller profile created',
+    await expect(service.setSellerProfile(body)).resolves.toMatchObject({
       data: { saved: true },
     });
+  });
+
+  it('tells the caller to go and check their email', async () => {
+    const { message } = await service.setSellerProfile(body);
+
+    expect(message).toContain('verification code');
+  });
+
+  it('issues a verification code for the new address', async () => {
+    await service.setSellerProfile(body);
+
+    expect(issue).toHaveBeenCalledWith(body.email, 'email_verification');
+  });
+
+  it('issues the code only after the writes commit', async () => {
+    const order: string[] = [];
+
+    transaction.mockImplementation(
+      async (run: (m: unknown) => Promise<unknown>) => {
+        await run({ insert });
+        order.push('commit');
+      },
+    );
+    issue.mockImplementation(() => {
+      order.push('issue');
+      return Promise.resolve({});
+    });
+
+    await service.setSellerProfile(body);
+
+    expect(order).toEqual(['commit', 'issue']);
+  });
+
+  it('still says yes when the code could not be sent', async () => {
+    // The account exists by then; failing here would send the client back to
+    // retry and collect a 409 on its own email.
+    issue.mockRejectedValue(new Error('brevo is down'));
+
+    await expect(service.setSellerProfile(body)).resolves.toMatchObject({
+      data: { saved: true },
+    });
+  });
+
+  it('does not issue a code when the writes failed', async () => {
+    insert.mockRejectedValue(new Error('connection lost'));
+
+    await expect(service.setSellerProfile(body)).rejects.toThrow();
+    expect(issue).not.toHaveBeenCalled();
   });
 
   it('stores a bcrypt hash, never the password', async () => {
