@@ -54,10 +54,33 @@ export class EmailService {
 
   constructor(private readonly config: ConfigService) {}
 
-  private get sender() {
+  /**
+   * Who messages come from.
+   *
+   * BREVO_SENDER_EMAIL is the name the .env uses; MAIL_FROM is accepted too
+   * because earlier code and the deployed environment were written against
+   * it. There is deliberately no hardcoded fallback address: Brevo rejects
+   * any sender that is not verified on the account, and it does so *after*
+   * accepting the request, so a wrong default does not fail the call - the
+   * mail just never arrives. Failing here instead makes that impossible.
+   */
+  private get sender(): Sender {
+    const email =
+      this.config.get<string>('BREVO_SENDER_EMAIL') ??
+      this.config.get<string>('MAIL_FROM');
+
+    if (!email) {
+      throw new ServiceUnavailableException(
+        'Email is not configured: BREVO_SENDER_EMAIL is missing',
+      );
+    }
+
     return {
-      email: this.config.get<string>('MAIL_FROM') ?? 'promisebedzo07@gmail.com',
-      name: this.config.get<string>('MAIL_FROM_NAME') ?? 'Makola',
+      email,
+      name:
+        this.config.get<string>('BREVO_SENDER_NAME') ??
+        this.config.get<string>('MAIL_FROM_NAME') ??
+        'Makola',
     };
   }
 
