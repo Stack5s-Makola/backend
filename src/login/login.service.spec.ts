@@ -1,18 +1,22 @@
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { JwtModule, JwtService } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
+import { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { OtpService } from '../otp/otp.service';
 import { User } from '../users/entities/user.entity';
 import { LoginService } from './login.service';
 
 const EMAIL = 'ama@example.com';
 const PASSWORD = 'correct-horse-battery';
+const SECRET = 'test-secret';
 
 describe('LoginService.login', () => {
   const findOne = jest.fn();
   const issue = jest.fn();
   let service: LoginService;
+  let jwt: JwtService;
   let passwordHash: string;
 
   beforeAll(async () => {
@@ -35,6 +39,8 @@ describe('LoginService.login', () => {
     issue.mockResolvedValue({ email: EMAIL, expiresAt: new Date() });
 
     const module = await Test.createTestingModule({
+      // No signOptions, exactly like SessionTokenModule: tokens carry no exp.
+      imports: [JwtModule.register({ secret: SECRET })],
       providers: [
         LoginService,
         { provide: getRepositoryToken(User), useValue: { findOne } },
@@ -43,6 +49,7 @@ describe('LoginService.login', () => {
     }).compile();
 
     service = module.get(LoginService);
+    jwt = module.get(JwtService);
   });
 
   it('returns the role, uppercased, on the right password', async () => {
@@ -128,5 +135,36 @@ describe('LoginService.login', () => {
     const result = await service.login({ email: EMAIL, password: PASSWORD });
 
     expect(JSON.stringify(result)).not.toContain('$2b$');
+  });
+
+  it('hands back a token that never expires', async () => {
+    const { data } = await service.login({ email: EMAIL, password: PASSWORD });
+
+    const claims = await jwt.verifyAsync<JwtPayload & { exp?: number }>(
+      data.accessToken,
+    );
+
+    expect(claims).toMatchObject({
+      sub: '11111111-1111-4111-8111-111111111111',
+      email: EMAIL,
+      role: 'SELLER',
+    });
+    expect(claims.exp).toBeUndefined();
+  });
+
+  it('issues no token when the credentials are wrong', async () => {
+    findOne.mockResolvedValue(null);
+
+    await expect(
+      service.login({ email: EMAIL, password: PASSWORD }),
+    ).rejects.toThrow();
+  });
+
+  it('treats an unrecognised role as a buyer', async () => {
+    findOne.mockResolvedValue(account({ role: 'something-else' }));
+
+    const { data } = await service.login({ email: EMAIL, password: PASSWORD });
+
+    expect(data.role).toBe('BUYER');
   });
 });

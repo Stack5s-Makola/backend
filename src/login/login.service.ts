@@ -4,10 +4,12 @@ import {
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Repository } from 'typeorm';
-import { normaliseRole } from '../common/constants/domain';
+import { normaliseRole, USER_ROLES } from '../common/constants/domain';
+import { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { OtpService } from '../otp/otp.service';
 import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto';
@@ -20,6 +22,7 @@ export class LoginService {
     @InjectRepository(User)
     private readonly users: Repository<User>,
     private readonly otp: OtpService,
+    private readonly jwt: JwtService,
   ) {}
 
   /**
@@ -60,11 +63,22 @@ export class LoginService {
       );
     }
 
+    // Rows written before roles settled on uppercase still normalise.
+    // normaliseRole only upper-cases, so check the result is a role we know:
+    // anything else becomes BUYER, the least an account can be, rather than
+    // being minted into a token's `role` claim as it is.
+    const claimed = normaliseRole(user.role);
+    const role = claimed && USER_ROLES.includes(claimed) ? claimed : 'BUYER';
+
+    // No expiry - see SessionTokenModule for why, and what it costs.
+    const payload: JwtPayload = { sub: user.id, email: user.email, role };
+
     return {
       message: 'Signed in. Check your email for a verification code.',
       data: {
+        accessToken: await this.jwt.signAsync(payload),
         email: user.email,
-        role: normaliseRole(user.role),
+        role,
         emailVerified: user.emailVerified,
       },
     };

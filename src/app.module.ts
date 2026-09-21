@@ -21,6 +21,7 @@ import { CommonModule } from './common/common.module';
 import { ProductsModule } from './products/products.module';
 import { RegisterModule } from './register/register.module';
 import { LoginModule } from './login/login.module';
+import { PasswordModule } from './password/password.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { LoginModule } from './login/login.module';
     ProductsModule,
     RegisterModule,
     LoginModule,
+    PasswordModule,
   ],
   controllers: [AppController],
   providers: [AppService],
