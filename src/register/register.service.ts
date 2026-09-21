@@ -7,7 +7,7 @@ import { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { OtpService } from '../otp/otp.service';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
-import { SetSellerProfileDto } from './dto';
+import { RegisterBuyerDto, SetSellerProfileDto } from './dto';
 
 /** Postgres: unique_violation. */
 const UNIQUE_VIOLATION = '23505';
@@ -69,21 +69,7 @@ export class RegisterService {
       throw this.explain(error);
     }
 
-    // After the commit, and deliberately not inside it: issuing a code writes
-    // its own row and sends an email, and neither should be able to roll back
-    // an account that is already valid.
-    //
-    // A failure here must not fail the request either. The account exists, so
-    // reporting failure would send the client back to retry and collect a 409
-    // on its own email. The app asks for another code at POST /api/otp.
-    try {
-      await this.otp.issue(email, 'email_verification');
-    } catch (error) {
-      this.logger.error(
-        `Account created but no verification code went out to ${email}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-    }
+    await this.issueCode(email);
 
     // Signed here so the app is logged in straight after sign-up, rather than
     // having to post the password again. Note the account is not verified
@@ -103,16 +89,79 @@ export class RegisterService {
     };
   }
 
-  /** Rejects an email, phone or shop name that is already in use. */
-  private async assertAvailable({
+  /**
+   * Creates a plain account - no shop - then emails a verification code.
+   *
+   * One row, so no transaction is needed: the insert either happens or it
+   * does not.
+   */
+  async registerBuyer({ email, phone, password, role }: RegisterBuyerDto) {
+    await this.assertAccountAvailable({ email, phone });
+
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+
+    let userId: string;
+
+    try {
+      const { identifiers } = await this.db
+        .getRepository(User)
+        .insert({ email, phone, passwordHash, role });
+
+      userId = (identifiers[0] as { id: string }).id;
+    } catch (error) {
+      throw this.explain(error);
+    }
+
+    await this.issueCode(email);
+
+    return {
+      message: 'Account created. Check your email for a verification code.',
+      data: {
+        saved: true,
+        accessToken: await this.jwt.signAsync({
+          sub: userId,
+          email,
+          role,
+        } satisfies JwtPayload),
+        user: { id: userId, email, role, emailVerified: false },
+      },
+    };
+  }
+
+  /**
+   * Issues a verification code, and swallows a failure to send it.
+   *
+   * Called after the account is written, never inside the transaction that
+   * writes it: this does its own write and sends an email, and neither should
+   * be able to roll back an account that is already valid. A failure must not
+   * fail the request either - the account exists, so reporting failure would
+   * send the client back to retry and collect a 409 on its own email. The app
+   * asks for another code at POST /api/verify-otp/resend.
+   */
+  private async issueCode(email: string) {
+    try {
+      await this.otp.issue(email, 'email_verification');
+    } catch (error) {
+      this.logger.error(
+        `Account created but no verification code went out to ${email}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
+  /** Rejects an email or phone number already registered to an account. */
+  private async assertAccountAvailable({
     email,
     phone,
-    shopName,
-  }: SetSellerProfileDto) {
-    const [byEmail, byPhone, byShop] = await Promise.all([
-      this.db.getRepository(User).findOne({ where: { email } }),
-      this.db.getRepository(User).findOne({ where: { phone } }),
-      this.db.getRepository(Seller).findOne({ where: { shopName } }),
+  }: {
+    email: string;
+    phone: string;
+  }) {
+    const users = this.db.getRepository(User);
+
+    const [byEmail, byPhone] = await Promise.all([
+      users.findOne({ where: { email } }),
+      users.findOne({ where: { phone } }),
     ]);
 
     if (byEmail) {
@@ -124,6 +173,19 @@ export class RegisterService {
         'An account with that phone number already exists',
       );
     }
+  }
+
+  /** Rejects an email, phone or shop name that is already in use. */
+  private async assertAvailable({
+    email,
+    phone,
+    shopName,
+  }: SetSellerProfileDto) {
+    await this.assertAccountAvailable({ email, phone });
+
+    const byShop = await this.db
+      .getRepository(Seller)
+      .findOne({ where: { shopName } });
 
     if (byShop) {
       throw new ConflictException('That shop name is already taken');

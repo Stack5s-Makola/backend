@@ -27,12 +27,18 @@ const valid = {
 
 describe('POST /register/set-seller-profile', () => {
   const setSellerProfile = jest.fn();
+  const registerBuyer = jest.fn();
   let app: INestApplication;
 
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       controllers: [RegisterController],
-      providers: [{ provide: RegisterService, useValue: { setSellerProfile } }],
+      providers: [
+        {
+          provide: RegisterService,
+          useValue: { setSellerProfile, registerBuyer },
+        },
+      ],
     }).compile();
 
     app = module.createNestApplication();
@@ -50,6 +56,10 @@ describe('POST /register/set-seller-profile', () => {
     jest.clearAllMocks();
     setSellerProfile.mockResolvedValue({
       message: 'Seller profile created',
+      data: { saved: true },
+    });
+    registerBuyer.mockResolvedValue({
+      message: 'Account created. Check your email for a verification code.',
       data: { saved: true },
     });
   });
@@ -153,6 +163,70 @@ describe('POST /register/set-seller-profile', () => {
 
     expect(setSellerProfile).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Ama Mensah', shopName: 'Shop' }),
+    );
+  });
+
+  const buyer = {
+    email: 'kofi@example.com',
+    phone: '0241234567',
+    password: 'correct-horse',
+    role: 'BUYER',
+  };
+
+  const postBuyer = async (body: Record<string, unknown>) => {
+    const res = await request(app.getHttpServer())
+      .post('/register/buyer')
+      .send(body);
+
+    return { status: res.status, body: res.body as Envelope };
+  };
+
+  it('200 on a good buyer sign-up', async () => {
+    const { status, body } = await postBuyer(buyer);
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true, data: { saved: true } });
+  });
+
+  it('409 when the buyer email is taken', async () => {
+    registerBuyer.mockRejectedValue(
+      new ConflictException('An account with that email already exists'),
+    );
+
+    const { status, body } = await postBuyer(buyer);
+
+    expect(status).toBe(409);
+    expect(body.message).toBe('An account with that email already exists');
+  });
+
+  it.each([
+    ['email', { ...buyer, email: 'not-an-email' }],
+    ['phone', { ...buyer, phone: '123' }],
+    ['password', { ...buyer, password: 'short' }],
+    ['role', { ...buyer, role: 'ADMIN' }],
+  ])('400 when the buyer %s is bad', async (field, payload) => {
+    const res = await postBuyer(payload);
+
+    expect(res.status).toBe(400);
+    expect(res.body.errors).toHaveProperty(field);
+  });
+
+  it('needs no shop name or location', async () => {
+    expect((await postBuyer(buyer)).status).toBe(200);
+  });
+
+  it('normalises the buyer email and phone', async () => {
+    await postBuyer({
+      ...buyer,
+      email: '  KOFI@Example.COM ',
+      phone: '024 123 4567',
+    });
+
+    expect(registerBuyer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'kofi@example.com',
+        phone: '0241234567',
+      }),
     );
   });
 });
