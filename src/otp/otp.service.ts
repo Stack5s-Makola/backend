@@ -1,14 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, LessThan, Repository } from 'typeorm';
-import { randomInt } from 'crypto';
 import * as bcrypt from 'bcrypt';
+import { generateOtpCode, OTP_LENGTH } from '../common/otp-code';
 import { EmailService } from '../email/email.service';
 import { Otp } from './entities/Otp.entity';
 import type { OtpPurpose } from './entities/Otp.entity';
 
-/** Codes are six digits, so they can be typed on a phone keypad. */
-export const OTP_LENGTH = 6;
+export { OTP_LENGTH };
 export const OTP_TTL_MINUTES = 10;
 /** Wrong guesses allowed before the code is burned. */
 export const OTP_MAX_ATTEMPTS = 5;
@@ -41,7 +40,7 @@ export class OtpService {
       { consumedAt: new Date() },
     );
 
-    const code = this.generateCode();
+    const code = generateOtpCode();
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60_000);
 
     await this.otpRepository.save(
@@ -141,11 +140,5 @@ export class OtpService {
   private consume(otp: Otp) {
     otp.consumedAt = new Date();
     return this.otpRepository.save(otp);
-  }
-
-  private generateCode(): string {
-    return randomInt(0, 10 ** OTP_LENGTH)
-      .toString()
-      .padStart(OTP_LENGTH, '0');
   }
 }
