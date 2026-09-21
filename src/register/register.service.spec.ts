@@ -51,12 +51,8 @@ describe('RegisterService.setSellerProfile', () => {
     issue.mockResolvedValue({ email: body.email, expiresAt: new Date() });
 
     const module = await Test.createTestingModule({
-      imports: [
-        JwtModule.register({
-          secret: SECRET,
-          signOptions: { expiresIn: '15m' },
-        }),
-      ],
+      // No signOptions, exactly like SessionTokenModule: tokens carry no exp.
+      imports: [JwtModule.register({ secret: SECRET })],
       providers: [
         RegisterService,
         {
@@ -241,6 +237,16 @@ describe('RegisterService.setSellerProfile', () => {
     );
   });
 
+  it('issues a token that never expires', async () => {
+    const { data } = await service.setSellerProfile(body);
+
+    const claims = await jwt.verifyAsync<JwtPayload & { exp?: number }>(
+      data.accessToken,
+    );
+
+    expect(claims.exp).toBeUndefined();
+  });
+
   it('hands back an access token for the new account', async () => {
     const { data } = await service.setSellerProfile(body);
 
@@ -262,7 +268,6 @@ describe('RegisterService.setSellerProfile', () => {
       role: 'SELLER',
       emailVerified: false,
     });
-    expect(data.expiresIn).toBe('15m');
   });
 
   it('never puts the password or its hash in the response', async () => {
