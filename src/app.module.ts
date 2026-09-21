@@ -20,6 +20,7 @@ import { DatabaseModule } from './database/database.module';
 import { CommonModule } from './common/common.module';
 import { ProductsModule } from './products/products.module';
 import { RegisterModule } from './register/register.module';
+import { LoginModule } from './login/login.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { RegisterModule } from './register/register.module';
     CommonModule,
     ProductsModule,
     RegisterModule,
+    LoginModule,
   ],
   controllers: [AppController],
   providers: [AppService],

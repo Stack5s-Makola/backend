@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
+import { SessionTokenModule } from '../common/session-token.module';
 import { OtpModule } from '../otp/otp.module';
 import { RegisterController } from './register.controller';
 import { RegisterService } from './register.service';
 
 @Module({
-  imports: [OtpModule],
+  imports: [OtpModule, SessionTokenModule],
   controllers: [RegisterController],
   providers: [RegisterService],
 })
