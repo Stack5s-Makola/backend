@@ -1,5 +1,5 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
-import { VerifyOtpDto } from './dto';
+import { RequestOtpDto, VerifyOtpDto } from './dto';
 import { VerificationService } from './verification.service';
 
 /**
@@ -16,5 +16,12 @@ export class VerifyOtpController {
   @HttpCode(HttpStatus.OK)
   verifyOtp(@Body() body: VerifyOtpDto) {
     return this.verification.verifyOtp(body);
+  }
+
+  /** POST /api/verify-otp/resend - the screen's "send it again" button. */
+  @Post('verify-otp/resend')
+  @HttpCode(HttpStatus.OK)
+  resend(@Body() body: RequestOtpDto) {
+    return this.verification.resend(body);
   }
 }

@@ -10,18 +10,24 @@ const CODE = '004213';
 
 describe('VerificationService.verifyOtp', () => {
   const verify = jest.fn();
+  const issue = jest.fn();
   const update = jest.fn();
   let service: VerificationService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
     verify.mockResolvedValue(undefined);
+    issue.mockResolvedValue({
+      email: EMAIL,
+      purpose: 'email_verification',
+      expiresAt: new Date('2026-09-21T03:00:00.000Z'),
+    });
     update.mockResolvedValue({ affected: 1 });
 
     const module = await Test.createTestingModule({
       providers: [
         VerificationService,
-        { provide: OtpService, useValue: { verify } },
+        { provide: OtpService, useValue: { verify, issue } },
         { provide: getRepositoryToken(User), useValue: { update } },
       ],
     }).compile();
@@ -94,5 +100,37 @@ describe('VerificationService.verifyOtp', () => {
     await expect(
       service.verifyOtp({ email: EMAIL, code: CODE }),
     ).resolves.toMatchObject({ data: { verified: true } });
+  });
+
+  it('resends a code and says when it dies', async () => {
+    await expect(service.resend({ email: EMAIL })).resolves.toEqual({
+      message: 'Verification code sent',
+      data: { email: EMAIL, expiresAt: new Date('2026-09-21T03:00:00.000Z') },
+    });
+  });
+
+  it('never puts the code itself in the response', async () => {
+    const result = await service.resend({ email: EMAIL });
+
+    expect(JSON.stringify(result)).not.toContain(CODE);
+    expect(result.data).not.toHaveProperty('code');
+  });
+
+  it('passes the purpose through when one is given', async () => {
+    await service.resend({ email: EMAIL, purpose: 'password_reset' });
+
+    expect(issue).toHaveBeenCalledWith(EMAIL, 'password_reset');
+  });
+
+  it('passes the cooldown rejection straight through', async () => {
+    issue.mockRejectedValue(
+      new BadRequestException(
+        'Please wait 43 seconds before requesting another code',
+      ),
+    );
+
+    await expect(service.resend({ email: EMAIL })).rejects.toThrow(
+      /wait 43 seconds/,
+    );
   });
 });
