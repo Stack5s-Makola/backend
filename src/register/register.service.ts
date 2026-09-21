@@ -1,7 +1,10 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { DataSource, QueryFailedError } from 'typeorm';
+import { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { OtpService } from '../otp/otp.service';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
@@ -20,6 +23,8 @@ export class RegisterService {
   constructor(
     @InjectDataSource() private readonly db: DataSource,
     private readonly otp: OtpService,
+    private readonly jwt: JwtService,
+    private readonly config: ConfigService,
   ) {}
 
   /**
@@ -40,8 +45,10 @@ export class RegisterService {
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
+    let userId: string;
+
     try {
-      await this.db.transaction(async (manager) => {
+      userId = await this.db.transaction(async (manager) => {
         const { identifiers } = await manager.insert(User, {
           email,
           phone,
@@ -49,14 +56,16 @@ export class RegisterService {
           role,
         });
 
-        const userId = (identifiers[0] as { id: string }).id;
+        const id = (identifiers[0] as { id: string }).id;
 
         await manager.insert(Seller, {
-          userId,
+          userId: id,
           shopName,
           latitude: location.latitude,
           longitude: location.longitude,
         });
+
+        return id;
       });
     } catch (error) {
       throw this.explain(error);
@@ -78,10 +87,20 @@ export class RegisterService {
       );
     }
 
+    // Signed here so the app is logged in straight after sign-up, rather than
+    // having to post the password again. Note the account is not verified
+    // yet: the token says who they are, not that their email is confirmed.
+    const payload: JwtPayload = { sub: userId, email, role };
+
     return {
       message:
         'Seller profile created. Check your email for a verification code.',
-      data: { saved: true },
+      data: {
+        saved: true,
+        accessToken: await this.jwt.signAsync(payload),
+        expiresIn: this.config.get<string>('JWT_ACCESS_EXPIRES_IN') ?? '15m',
+        user: { id: userId, email, role, emailVerified: false },
+      },
     };
   }
 

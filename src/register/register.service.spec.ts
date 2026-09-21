@@ -1,8 +1,11 @@
 import { ConflictException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
+import { JwtModule, JwtService } from '@nestjs/jwt';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { QueryFailedError } from 'typeorm';
+import { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { OtpService } from '../otp/otp.service';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
@@ -10,6 +13,7 @@ import { SetSellerProfileDto } from './dto';
 import { RegisterService } from './register.service';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
+const SECRET = 'test-secret';
 
 const body: SetSellerProfileDto = {
   email: 'ama@example.com',
@@ -34,6 +38,7 @@ describe('RegisterService.setSellerProfile', () => {
   const transaction = jest.fn();
   const issue = jest.fn();
   let service: RegisterService;
+  let jwt: JwtService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -46,8 +51,18 @@ describe('RegisterService.setSellerProfile', () => {
     issue.mockResolvedValue({ email: body.email, expiresAt: new Date() });
 
     const module = await Test.createTestingModule({
+      imports: [
+        JwtModule.register({
+          secret: SECRET,
+          signOptions: { expiresIn: '15m' },
+        }),
+      ],
       providers: [
         RegisterService,
+        {
+          provide: ConfigService,
+          useValue: { get: () => '15m' },
+        },
         {
           provide: getDataSourceToken(),
           useValue: { transaction, getRepository: () => ({ findOne }) },
@@ -57,6 +72,7 @@ describe('RegisterService.setSellerProfile', () => {
     }).compile();
 
     service = module.get(RegisterService);
+    jwt = module.get(JwtService);
   });
 
   it('says yes once the account and shop are written', async () => {
@@ -223,5 +239,44 @@ describe('RegisterService.setSellerProfile', () => {
     await expect(service.setSellerProfile(body)).rejects.toThrow(
       'connection lost',
     );
+  });
+
+  it('hands back an access token for the new account', async () => {
+    const { data } = await service.setSellerProfile(body);
+
+    const claims = await jwt.verifyAsync<JwtPayload>(data.accessToken);
+
+    expect(claims).toMatchObject({
+      sub: USER_ID,
+      email: body.email,
+      role: 'SELLER',
+    });
+  });
+
+  it('returns the account alongside the token', async () => {
+    const { data } = await service.setSellerProfile(body);
+
+    expect(data.user).toEqual({
+      id: USER_ID,
+      email: body.email,
+      role: 'SELLER',
+      emailVerified: false,
+    });
+    expect(data.expiresIn).toBe('15m');
+  });
+
+  it('never puts the password or its hash in the response', async () => {
+    const result = await service.setSellerProfile(body);
+
+    expect(JSON.stringify(result)).not.toContain(body.password);
+    expect(JSON.stringify(result)).not.toContain('$2b$');
+  });
+
+  it('still issues a token when the verification email fails', async () => {
+    issue.mockRejectedValue(new Error('brevo is down'));
+
+    const { data } = await service.setSellerProfile(body);
+
+    expect(typeof data.accessToken).toBe('string');
   });
 });
