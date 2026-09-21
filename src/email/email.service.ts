@@ -4,6 +4,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { renderTemplate } from './template';
 
 /** Brevo's transactional email endpoint. */
 const BREVO_ENDPOINT = 'https://api.brevo.com/v3/smtp/email';
@@ -14,6 +15,27 @@ interface Message {
   subject: string;
   text: string;
   html?: string;
+  sender?: Sender;
+}
+
+/** Who a message comes from. Must be a verified sender in Brevo. */
+export interface Sender {
+  email: string;
+  name?: string;
+}
+
+/** What sendTemplate needs to put an html file in someone's inbox. */
+export interface TemplateMessage {
+  /** File name under src/templates, without the .html. */
+  template: string;
+  to: string;
+  subject: string;
+  /** Defaults to MAIL_FROM / MAIL_FROM_NAME when left out. */
+  sender?: Sender;
+  /** Values for the template's {{placeholders}}. */
+  variables?: Record<string, string | number>;
+  /** Shown by mail clients that refuse to render html. */
+  text?: string;
 }
 
 /**
@@ -43,6 +65,33 @@ export class EmailService {
     await this.deliver({ to, subject, text });
   }
 
+  /**
+   * Sends one of the html files in src/templates.
+   *
+   * The template's {{placeholders}} are filled from `variables`, so the same
+   * file serves every recipient. `sender` overrides the configured address for
+   * callers that need to send as someone else; it must still be verified in
+   * Brevo or the send is rejected.
+   */
+  async sendTemplate({
+    template,
+    to,
+    subject,
+    sender,
+    variables,
+    text,
+  }: TemplateMessage): Promise<void> {
+    await this.deliver({
+      to,
+      subject,
+      sender,
+      html: renderTemplate(template, variables),
+      // Falls back to the subject so the message is never empty for a client
+      // that will not render html.
+      text: text ?? subject,
+    });
+  }
+
   async sendWelcomeEmail(to: string, userName: string): Promise<void> {
     await this.deliver({
       to,
@@ -62,14 +111,12 @@ export class EmailService {
    */
   async sendOtpEmail(to: string, code: string, minutes: number): Promise<void> {
     try {
-      await this.deliver({
+      await this.sendTemplate({
+        template: 'verifyOtp',
         to,
         subject: 'Your Makola verification code',
+        variables: { code, minutes },
         text: `Your Makola verification code is ${code}. It expires in ${minutes} minutes.`,
-        html:
-          `<p>Your Makola verification code is:</p>` +
-          `<p style="font-size:24px;letter-spacing:4px;"><strong>${code}</strong></p>` +
-          `<p>It expires in ${minutes} minutes. If you did not ask for it, you can ignore this email.</p>`,
       });
     } catch (error) {
       this.logger.error(
@@ -99,7 +146,7 @@ export class EmailService {
           accept: 'application/json',
         },
         body: JSON.stringify({
-          sender: this.sender,
+          sender: message.sender ?? this.sender,
           to: [{ email: message.to }],
           subject: message.subject,
           textContent: message.text,
