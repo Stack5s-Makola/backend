@@ -23,7 +23,8 @@ properties with **no `@Column`**, so TypeORM never puts them in a query:
 
 - `User.fullName` and `User.avatarUrl` in `src/users/entities/user.entity.ts`
 - `Seller.logoUrl` in `src/sellers/entities/seller.entity.ts`
-- `Product.imageUrl` in `src/products/entities/product.entity.ts`
+- `Product.imageUrl` and `Product.tags` in
+  `src/products/entities/product.entity.ts`
 
 `src/admin/sellers.service.ts` and `src/admin/listings.service.ts` already read
 all four, so the values appear in the API the moment the columns are real. Until then they are `undefined`, and
@@ -46,6 +47,11 @@ ALTER TABLE "sellers" ADD COLUMN IF NOT EXISTS "logoUrl" character varying;
 
 -- The listing's photo, shown in the admin listings table.
 ALTER TABLE "product" ADD COLUMN IF NOT EXISTS "imageUrl" character varying;
+
+-- Words a seller attaches so shoppers can find the listing. Defaults to an
+-- empty array, so existing rows need no backfill.
+ALTER TABLE "product" ADD COLUMN IF NOT EXISTS "tags" text[] NOT NULL DEFAULT '{}';
+CREATE INDEX IF NOT EXISTS "IDX_product_tags" ON "product" USING GIN ("tags");
 ```
 
 ## Turning it on
@@ -90,3 +96,24 @@ Both tables are empty, so no data settles which one is meant to win. If
 `product_listings` is the real destination, this tab and the dashboard count
 both need pointing at it; if it is abandoned, it should be dropped so it stops
 looking like the answer.
+
+## Turning tags on
+
+`GET /api/buyer/products/search` matches the name and the category today. It
+does not match tags, because there is no column to match against - the clause
+would be a filter that can never fire.
+
+Once the `tags` column above exists:
+
+1. Add `@Column('text', { array: true, default: '{}' })` to `Product.tags`.
+2. In `BuyerService.search`, widen the term clause:
+
+   ```ts
+   '(product.name ILIKE :term OR category.name ILIKE :term' +
+     ' OR EXISTS (SELECT 1 FROM unnest(product.tags) tag WHERE tag ILIKE :term))'
+   ```
+
+3. Accept `tags` on the DTO the seller posts a product with.
+
+Until step 1, `tags` is always `[]` in the API and anything a seller sends is
+dropped on the floor.

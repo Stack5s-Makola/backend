@@ -58,6 +58,16 @@ export class Product {
   /** The listing's photo, as a Cloudinary URL like the uploads module returns. */
   imageUrl?: string;
 
+  /**
+   * Words a seller attaches to help shoppers find the listing.
+   *
+   * Same story: no `tags` column exists, so nothing is stored and every
+   * product reads as an empty list. Anything written here is dropped.
+   * Buyer search covers the name and the category instead - it can include
+   * tags the day the column is real.
+   */
+  tags?: string[];
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;
 
