@@ -315,6 +315,43 @@ old picture in place rather than clearing it.
 
 ---
 
+## 7c. Change the shop name, location or phone
+
+Three small endpoints, one field each, all JSON.
+
+```
+POST /api/seller/me/update/shop-name   { "shopName": "Ama Fabrics" }
+POST /api/seller/me/update/location    { "latitude": 5.575, "longitude": -0.2 }
+POST /api/seller/me/update/phone       { "phone": "0241234567" }
+```
+
+```json
+{ "success": true, "message": "Shop name updated",   "data": { "shopName": "Ama Fabrics" } }
+{ "success": true, "message": "Location updated",    "data": { "location": { "latitude": 5.575, "longitude": -0.2 } } }
+{ "success": true, "message": "Phone number updated","data": { "phone": "0241234567" } }
+```
+
+| Situation | Status | `message` |
+| --- | --- | --- |
+| Another shop has that name | `409` | `That shop name is already taken` |
+| Another account has that number | `409` | `An account with that phone number already exists` |
+| Blank shop name | `400` | `shopName is required` |
+| Coordinates out of range | `400` | `latitude must be between -90 and 90` |
+| Malformed phone | `400` | `Please provide a valid phone number` |
+| Account has no shop | `403` | `This account does not have a shop` |
+
+Re-saving your **own** name or number is fine, in any casing - the uniqueness
+check skips the row it belongs to.
+
+The phone number lives on the **account**, not the shop, so this changes the
+number the seller signs up and is contacted with, not a separate shop line.
+There is no column for one of those.
+
+Moving the location moves the **whole shop**, so every listing shows in the
+new place. There is no per-listing location.
+
+---
+
 ## 8. Add a product
 
 ```
@@ -404,8 +441,8 @@ products and use every endpoint here.
   ever reach buyers yet. This is the biggest gap.
 - **No edit or delete** for a listing, and no way to change stock after it is
   listed.
-- **No way to update the shop's name, description or location** - only the
-  picture, in section 7b.
+- **No way to update the shop's description, or the seller's own name or
+  email.** Name, location, phone and picture are covered in 7b and 7c.
 - **No pagination** on `/seller/shop`; it returns everything.
 - **Nothing consumes the `login` code**, so the two-step sign in never
   completes. The token from `/api/login` is already valid on its own.

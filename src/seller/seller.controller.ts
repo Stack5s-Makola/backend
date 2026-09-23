@@ -14,7 +14,13 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import type { JwtPayload } from '../common/guards/jwt-auth.guard';
-import { AddProductDto, ShopProductsDto } from './dto';
+import {
+  AddProductDto,
+  ShopProductsDto,
+  UpdateLocationDto,
+  UpdatePhoneDto,
+  UpdateShopNameDto,
+} from './dto';
 import { SellerService } from './seller.service';
 import type { UploadedImage } from './seller.service';
 
@@ -64,6 +70,33 @@ export class SellerController {
     @UploadedFile() image?: UploadedImage,
   ) {
     return this.seller.updateProfilePicture(user.sub, image);
+  }
+
+  /** POST /api/seller/me/update/shop-name - rename the shop. */
+  @Post('me/update/shop-name')
+  @HttpCode(HttpStatus.OK)
+  updateShopName(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: UpdateShopNameDto,
+  ) {
+    return this.seller.updateShopName(user.sub, body);
+  }
+
+  /** POST /api/seller/me/update/location - move the shop. */
+  @Post('me/update/location')
+  @HttpCode(HttpStatus.OK)
+  updateLocation(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: UpdateLocationDto,
+  ) {
+    return this.seller.updateLocation(user.sub, body);
+  }
+
+  /** POST /api/seller/me/update/phone - change the account's phone number. */
+  @Post('me/update/phone')
+  @HttpCode(HttpStatus.OK)
+  updatePhone(@CurrentUser() user: JwtPayload, @Body() body: UpdatePhoneDto) {
+    return this.seller.updatePhone(user.sub, body);
   }
 
   /**

@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Category } from '../categories/entities/Categories.entity';
@@ -56,6 +60,7 @@ describe('SellerService', () => {
   const productInsert = jest.fn();
   const sellerFindOne = jest.fn();
   const sellerUpdate = jest.fn();
+  const sellerGetOne = jest.fn();
   const userFindOne = jest.fn();
   const userUpdate = jest.fn();
   const categorySave = jest.fn();
@@ -72,6 +77,11 @@ describe('SellerService', () => {
     getRawMany: () => getRawMany() as Promise<unknown[]>,
   };
 
+  const sellerBuilder = {
+    where: () => sellerBuilder,
+    getOne: () => sellerGetOne() as Promise<Seller | null>,
+  };
+
   const categoryBuilder = {
     where: () => categoryBuilder,
     getOne: () => categoryGetOne() as Promise<Category | null>,
@@ -81,6 +91,8 @@ describe('SellerService', () => {
     jest.clearAllMocks();
     sellerFindOne.mockResolvedValue(shop);
     userUpdate.mockResolvedValue({ affected: 1 });
+    sellerUpdate.mockResolvedValue({ affected: 1 });
+    sellerGetOne.mockResolvedValue(null);
     userFindOne.mockResolvedValue({
       id: USER_ID,
       email: 'ama@example.com',
@@ -106,7 +118,11 @@ describe('SellerService', () => {
         },
         {
           provide: getRepositoryToken(Seller),
-          useValue: { findOne: sellerFindOne, update: sellerUpdate },
+          useValue: {
+            findOne: sellerFindOne,
+            update: sellerUpdate,
+            createQueryBuilder: () => sellerBuilder,
+          },
         },
         {
           provide: getRepositoryToken(Category),
@@ -443,6 +459,118 @@ describe('SellerService', () => {
 
       await expect(
         service.updateProfilePicture(USER_ID, image),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('updateShopName', () => {
+    it('renames the shop', async () => {
+      await expect(
+        service.updateShopName(USER_ID, { shopName: 'New Fabrics' }),
+      ).resolves.toEqual({
+        message: 'Shop name updated',
+        data: { shopName: 'New Fabrics' },
+      });
+      expect(sellerUpdate).toHaveBeenCalledWith(
+        { id: SHOP_ID },
+        { shopName: 'New Fabrics' },
+      );
+    });
+
+    it('409s when another shop already has that name', async () => {
+      sellerGetOne.mockResolvedValue({ id: 'someone-else' });
+
+      await expect(
+        service.updateShopName(USER_ID, { shopName: 'Taken' }),
+      ).rejects.toThrow(
+        new ConflictException('That shop name is already taken'),
+      );
+      expect(sellerUpdate).not.toHaveBeenCalled();
+    });
+
+    it('lets a seller re-save its own name, in any casing', async () => {
+      // No uniqueness lookup at all: it is already their name.
+      await service.updateShopName(USER_ID, { shopName: 'makola fabrics' });
+
+      expect(sellerGetOne).not.toHaveBeenCalled();
+      expect(sellerUpdate).toHaveBeenCalled();
+    });
+
+    it('403s for an account with no shop', async () => {
+      sellerFindOne.mockResolvedValue(null);
+
+      await expect(
+        service.updateShopName(USER_ID, { shopName: 'x' }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('updateLocation', () => {
+    it('moves the shop', async () => {
+      await expect(
+        service.updateLocation(USER_ID, { latitude: 6.7, longitude: -1.62 }),
+      ).resolves.toEqual({
+        message: 'Location updated',
+        data: { location: { latitude: 6.7, longitude: -1.62 } },
+      });
+      expect(sellerUpdate).toHaveBeenCalledWith(
+        { id: SHOP_ID },
+        { latitude: 6.7, longitude: -1.62 },
+      );
+    });
+
+    it('403s for an account with no shop', async () => {
+      sellerFindOne.mockResolvedValue(null);
+
+      await expect(
+        service.updateLocation(USER_ID, { latitude: 1, longitude: 1 }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('updatePhone', () => {
+    it('changes the number on the account, not the shop', async () => {
+      userFindOne.mockResolvedValue(null);
+
+      await expect(
+        service.updatePhone(USER_ID, { phone: '0209999999' }),
+      ).resolves.toEqual({
+        message: 'Phone number updated',
+        data: { phone: '0209999999' },
+      });
+      expect(userUpdate).toHaveBeenCalledWith(
+        { id: USER_ID },
+        { phone: '0209999999' },
+      );
+      expect(sellerUpdate).not.toHaveBeenCalled();
+    });
+
+    it('409s when another account already has that number', async () => {
+      userFindOne.mockResolvedValue({ id: 'someone-else' });
+
+      await expect(
+        service.updatePhone(USER_ID, { phone: '0209999999' }),
+      ).rejects.toThrow(
+        new ConflictException(
+          'An account with that phone number already exists',
+        ),
+      );
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('lets a seller re-save their own number', async () => {
+      userFindOne.mockResolvedValue({ id: USER_ID });
+
+      await expect(
+        service.updatePhone(USER_ID, { phone: '0241234567' }),
+      ).resolves.toMatchObject({ message: 'Phone number updated' });
+    });
+
+    it('403s for an account with no shop', async () => {
+      sellerFindOne.mockResolvedValue(null);
+
+      await expect(
+        service.updatePhone(USER_ID, { phone: '0209999999' }),
       ).rejects.toThrow(ForbiddenException);
     });
   });

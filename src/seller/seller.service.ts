@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -11,7 +12,13 @@ import { Product } from '../products/entities/product.entity';
 import { Seller } from '../sellers/entities/seller.entity';
 import { UploadsService } from '../uploads/uploads.service';
 import { User } from '../users/entities/user.entity';
-import { AddProductDto, ShopProductsDto } from './dto';
+import {
+  AddProductDto,
+  ShopProductsDto,
+  UpdateLocationDto,
+  UpdatePhoneDto,
+  UpdateShopNameDto,
+} from './dto';
 
 /** How many listings the dashboard shows. */
 const RECENT_LISTINGS = 5;
@@ -173,6 +180,69 @@ export class SellerService {
       message: 'Profile picture updated',
       data: { avatar: url ?? null, logo: url ?? null },
     };
+  }
+
+  /**
+   * Renames the shop.
+   *
+   * Shop names are unique across the platform, so a name another seller has
+   * comes back as a 409 rather than a constraint error.
+   */
+  async updateShopName(userId: string, { shopName }: UpdateShopNameDto) {
+    const shop = await this.shopOf(userId);
+
+    if (shopName.toLowerCase() !== shop.shopName.toLowerCase()) {
+      const taken = await this.sellers
+        .createQueryBuilder('seller')
+        .where('LOWER(seller.shopName) = LOWER(:shopName)', { shopName })
+        .getOne();
+
+      if (taken) {
+        throw new ConflictException('That shop name is already taken');
+      }
+    }
+
+    await this.sellers.update({ id: shop.id }, { shopName });
+
+    return { message: 'Shop name updated', data: { shopName } };
+  }
+
+  /** Moves the shop. Every listing shows wherever the shop is. */
+  async updateLocation(
+    userId: string,
+    { latitude, longitude }: UpdateLocationDto,
+  ) {
+    const shop = await this.shopOf(userId);
+
+    await this.sellers.update({ id: shop.id }, { latitude, longitude });
+
+    return {
+      message: 'Location updated',
+      data: { location: { latitude, longitude } },
+    };
+  }
+
+  /**
+   * Changes the phone number on the account.
+   *
+   * The number lives on the user row, not the shop, so this is the account's
+   * number rather than a shop contact line. Numbers are unique, so one
+   * already registered comes back as a 409.
+   */
+  async updatePhone(userId: string, { phone }: UpdatePhoneDto) {
+    await this.shopOf(userId);
+
+    const taken = await this.users.findOne({ where: { phone } });
+
+    if (taken && taken.id !== userId) {
+      throw new ConflictException(
+        'An account with that phone number already exists',
+      );
+    }
+
+    await this.users.update({ id: userId }, { phone });
+
+    return { message: 'Phone number updated', data: { phone } };
   }
 
   /**
