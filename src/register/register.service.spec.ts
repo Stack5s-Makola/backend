@@ -7,6 +7,7 @@ import * as bcrypt from 'bcrypt';
 import { QueryFailedError } from 'typeorm';
 import { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { OtpService } from '../otp/otp.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
 import { SetSellerProfileDto } from './dto';
@@ -37,11 +38,13 @@ describe('RegisterService.setSellerProfile', () => {
   const insert = jest.fn();
   const transaction = jest.fn();
   const issue = jest.fn();
+  const uploadImage = jest.fn();
   let service: RegisterService;
   let jwt: JwtService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    uploadImage.mockResolvedValue({ secure_url: 'https://cdn/pic.jpg' });
     // Nothing taken by default.
     findOne.mockResolvedValue(null);
     insert.mockResolvedValue({ identifiers: [{ id: USER_ID }] });
@@ -64,6 +67,7 @@ describe('RegisterService.setSellerProfile', () => {
           useValue: { transaction, getRepository: () => ({ findOne }) },
         },
         { provide: OtpService, useValue: { issue } },
+        { provide: UploadsService, useValue: { uploadImage } },
       ],
     }).compile();
 
@@ -283,5 +287,89 @@ describe('RegisterService.setSellerProfile', () => {
     const { data } = await service.setSellerProfile(body);
 
     expect(typeof data.accessToken).toBe('string');
+  });
+
+  describe('the picture', () => {
+    const image = {
+      buffer: Buffer.from('fake'),
+      mimetype: 'image/jpeg',
+      size: 1024,
+    };
+
+    it('uploads it and stores the url on the account', async () => {
+      await service.setSellerProfile(body, image);
+
+      expect(uploadImage).toHaveBeenCalledWith(image);
+      expect(insert).toHaveBeenNthCalledWith(
+        1,
+        User,
+        expect.objectContaining({ avatarUrl: 'https://cdn/pic.jpg' }),
+      );
+    });
+
+    it('is optional - no picture, no avatarUrl', async () => {
+      await service.setSellerProfile(body);
+
+      expect(uploadImage).not.toHaveBeenCalled();
+
+      const [, values] = insert.mock.calls[0] as [
+        unknown,
+        { avatarUrl?: string },
+      ];
+
+      expect(values.avatarUrl).toBeUndefined();
+    });
+
+    it('rejects a file that is not an image', async () => {
+      await expect(
+        service.setSellerProfile(body, {
+          ...image,
+          mimetype: 'application/pdf',
+        }),
+      ).rejects.toThrow('The profile picture must be an image');
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('rejects anything over 5MB', async () => {
+      await expect(
+        service.setSellerProfile(body, { ...image, size: 6 * 1024 * 1024 }),
+      ).rejects.toThrow('under 5MB');
+      expect(insert).not.toHaveBeenCalled();
+    });
+
+    it('fails the request when Cloudinary fails, before writing anything', async () => {
+      uploadImage.mockRejectedValue(new Error('cloudinary is down'));
+
+      await expect(service.setSellerProfile(body, image)).rejects.toThrow(
+        'could not be uploaded',
+      );
+      expect(insert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('coordinates', () => {
+    it('takes them from flat fields when there is no location object', async () => {
+      const flat = {
+        ...body,
+        location: undefined,
+        latitude: 5.55,
+        longitude: -0.2,
+      };
+
+      await service.setSellerProfile(flat);
+
+      expect(insert).toHaveBeenNthCalledWith(
+        2,
+        Seller,
+        expect.objectContaining({ latitude: 5.55, longitude: -0.2 }),
+      );
+    });
+
+    it('400s when neither form is sent', async () => {
+      await expect(
+        service.setSellerProfile({ ...body, location: undefined }),
+      ).rejects.toThrow('location is required');
+      expect(insert).not.toHaveBeenCalled();
+    });
   });
 });

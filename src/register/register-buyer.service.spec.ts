@@ -6,6 +6,7 @@ import * as bcrypt from 'bcrypt';
 import { QueryFailedError } from 'typeorm';
 import { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { OtpService } from '../otp/otp.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { RegisterBuyerDto } from './dto';
 import { RegisterService } from './register.service';
 
@@ -23,11 +24,13 @@ describe('RegisterService.registerBuyer', () => {
   const findOne = jest.fn();
   const insert = jest.fn();
   const issue = jest.fn();
+  const uploadImage = jest.fn();
   let service: RegisterService;
   let jwt: JwtService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    uploadImage.mockResolvedValue({ secure_url: 'https://cdn/pic.jpg' });
     // Nothing taken by default.
     findOne.mockResolvedValue(null);
     insert.mockResolvedValue({ identifiers: [{ id: USER_ID }] });
@@ -46,6 +49,7 @@ describe('RegisterService.registerBuyer', () => {
           },
         },
         { provide: OtpService, useValue: { issue } },
+        { provide: UploadsService, useValue: { uploadImage } },
       ],
     }).compile();
 
