@@ -232,6 +232,45 @@ Newest first, every status included.
 
 ---
 
+## 7b. Approve a listing
+
+```
+PATCH /api/admin/listings/:id/approve
+```
+
+No body. Until this runs, a seller's product exists but appears nowhere a
+shopper looks.
+
+```json
+{
+  "success": true,
+  "message": "Listing approved",
+  "data": { "id": "b1c4dd72-…", "status": "approved", "changed": true }
+}
+```
+
+| Situation | Status | `message` |
+| --- | --- | --- |
+| Approved | `200` | `Listing approved`, `changed: true` |
+| Already approved | `200` | `That listing was already approved`, `changed: false` |
+| No listing with that id | `404` | `No listing found for that id` |
+| `id` is not a uuid | `400` | `Validation failed (uuid is expected)` |
+| Not an admin | `403` | `This action requires one of the following roles: ADMIN` |
+
+Approving a **rejected** or **removed** listing reinstates it, and clears the
+`moderationNote` that explained why it was pulled.
+
+Double-tapping is safe: the second call changes nothing and still returns
+`200`, with `changed: false` to tell the two apart.
+
+`moderatedAt` records when. `moderatedBy` records **null** for the super
+admin - that column is a uuid, and the super admin's token carries the
+sentinel id `super-admin`, which is not one.
+
+There is no reject or remove endpoint yet.
+
+---
+
 ## 8. Fields that are always null
 
 `name`, `profilePicture` and `image` are in the contract but the database has

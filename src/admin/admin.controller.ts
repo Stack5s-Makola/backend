@@ -4,11 +4,16 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import type { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AdminService } from './admin.service';
 import { BuyersService } from './buyers.service';
@@ -68,5 +73,22 @@ export class AdminController {
   @Roles('ADMIN')
   listListings() {
     return this.listings.list();
+  }
+
+  /**
+   * PATCH /api/admin/listings/:id/approve - let buyers see a listing.
+   *
+   * Until this runs, a seller's product exists but appears nowhere a shopper
+   * looks.
+   */
+  @Patch('listings/:id/approve')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  approveListing(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() admin: JwtPayload,
+  ) {
+    return this.listings.approve(id, admin.sub);
   }
 }
