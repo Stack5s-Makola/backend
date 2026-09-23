@@ -47,5 +47,6 @@ export class User {
   fullName?: string;
 
   /** Their avatar, stored as a Cloudinary URL like the uploads module returns. */
+  @Column({ nullable: true })
   avatarUrl?: string;
 }

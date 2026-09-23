@@ -6,6 +6,7 @@ import {
   IsLongitude,
   IsNotEmpty,
   IsObject,
+  IsOptional,
   IsString,
   Matches,
   MaxLength,
@@ -73,10 +74,30 @@ export class SetSellerProfileDto {
   @MaxLength(120)
   shopName!: string;
 
+  /**
+   * Where the shop is, as a nested object.
+   *
+   * Optional because a multipart request cannot nest: a client sending an
+   * image sends flat `latitude` and `longitude` fields instead. The service
+   * requires one form or the other.
+   */
+  @IsOptional()
   @IsObject()
   @ValidateNested()
   @Type(() => LocationDto)
-  location!: LocationDto;
+  location?: LocationDto;
+
+  /** Flat alternative to `location.latitude`, for multipart requests. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsLatitude({ message: 'latitude must be between -90 and 90' })
+  latitude?: number;
+
+  /** Flat alternative to `location.longitude`, for multipart requests. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude({ message: 'longitude must be between -180 and 180' })
+  longitude?: number;
 
   @Transform(upperCased)
   @IsIn(SELF_SERVICE_ROLES, {

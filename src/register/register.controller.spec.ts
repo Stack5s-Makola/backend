@@ -116,6 +116,7 @@ describe('POST /register/set-seller-profile', () => {
         email: 'ama@example.com',
         phone: '0241234567',
       }),
+      undefined,
     );
   });
 
@@ -143,11 +144,31 @@ describe('POST /register/set-seller-profile', () => {
     expect(body.errors?.['location.latitude']).toContain('between -90 and 90');
   });
 
-  it('400 when location is missing entirely', async () => {
+  it('forwards a body with no location - the service rejects it', async () => {
+    // location became optional on the DTO so multipart can send flat
+    // latitude/longitude instead. RegisterService is what now requires one
+    // form or the other; see its spec.
     const withoutLocation: Record<string, unknown> = { ...valid };
     delete withoutLocation.location;
 
-    expect((await post(withoutLocation)).status).toBe(400);
+    await post(withoutLocation);
+
+    expect(setSellerProfile).toHaveBeenCalled();
+  });
+
+  it('accepts flat latitude and longitude, as multipart sends them', async () => {
+    const flat: Record<string, unknown> = { ...valid };
+    delete flat.location;
+    flat.latitude = 5.55;
+    flat.longitude = -0.2;
+
+    const { status } = await post(flat);
+
+    expect(status).toBe(200);
+    expect(setSellerProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ latitude: 5.55, longitude: -0.2 }),
+      undefined,
+    );
   });
 
   it('accepts a lowercase role and passes it on uppercased', async () => {
@@ -155,6 +176,7 @@ describe('POST /register/set-seller-profile', () => {
 
     expect(setSellerProfile).toHaveBeenCalledWith(
       expect.objectContaining({ role: 'SELLER' }),
+      undefined,
     );
   });
 
@@ -163,6 +185,7 @@ describe('POST /register/set-seller-profile', () => {
 
     expect(setSellerProfile).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Ama Mensah', shopName: 'Shop' }),
+      undefined,
     );
   });
 
@@ -227,6 +250,7 @@ describe('POST /register/set-seller-profile', () => {
         email: 'kofi@example.com',
         phone: '0241234567',
       }),
+      undefined,
     );
   });
 });

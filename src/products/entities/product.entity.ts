@@ -50,23 +50,17 @@ export class Product {
   @Column({ type: 'timestamptz', nullable: true })
   moderatedAt!: Date | null;
 
-  // Deliberately NOT a @Column: `product` has no image column yet, and
-  // declaring one puts it in every query against this table. Declared so the
-  // admin listings table can read it once a migration adds it - see
-  // documentation/pending-profile-fields.md.
-
   /** The listing's photo, as a Cloudinary URL like the uploads module returns. */
+  @Column({ nullable: true })
   imageUrl?: string;
 
-  /**
-   * Words a seller attaches to help shoppers find the listing.
-   *
-   * Same story: no `tags` column exists, so nothing is stored and every
-   * product reads as an empty list. Anything written here is dropped.
-   * Buyer search covers the name and the category instead - it can include
-   * tags the day the column is real.
-   */
-  tags?: string[];
+  /** Words a seller attaches to help shoppers find the listing. */
+  @Column('text', { array: true, default: '{}' })
+  tags!: string[];
+
+  /** How many the seller has. Zero means out of stock, not unlisted. */
+  @Column({ type: 'int', default: 0 })
+  quantity!: number;
 
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt!: Date;

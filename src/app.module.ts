@@ -23,6 +23,7 @@ import { RegisterModule } from './register/register.module';
 import { LoginModule } from './login/login.module';
 import { PasswordModule } from './password/password.module';
 import { BuyerModule } from './buyer/buyer.module';
+import { SellerModule } from './seller/seller.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { BuyerModule } from './buyer/buyer.module';
     LoginModule,
     PasswordModule,
     BuyerModule,
+    SellerModule,
   ],
   controllers: [AppController],
   providers: [AppService],

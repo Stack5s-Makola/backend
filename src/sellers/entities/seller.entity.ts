@@ -45,6 +45,7 @@ export class Seller {
   // documentation/pending-profile-fields.md.
 
   /** The shop's own logo, shown in the admin sellers table ahead of the owner's avatar. */
+  @Column({ nullable: true })
   logoUrl?: string;
 
   @OneToMany(() => Product, (product) => product.seller)
