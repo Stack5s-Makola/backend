@@ -78,6 +78,8 @@ const LISTINGS = {
 };
 
 /** Drives the guarded admin routes over HTTP to check who gets through. */
+const approve = jest.fn();
+
 describe('guarded admin routes', () => {
   let app: INestApplication;
   let jwt: JwtService;
@@ -92,7 +94,10 @@ describe('guarded admin routes', () => {
         { provide: DashboardService, useValue: { totals: () => TOTALS } },
         { provide: SellersService, useValue: { list: () => SELLERS } },
         { provide: BuyersService, useValue: { list: () => BUYERS } },
-        { provide: ListingsService, useValue: { list: () => LISTINGS } },
+        {
+          provide: ListingsService,
+          useValue: { list: () => LISTINGS, approve },
+        },
       ],
     }).compile();
 
@@ -107,6 +112,15 @@ describe('guarded admin routes', () => {
   afterAll(async () => {
     await app.close();
   });
+
+  const patch = async (token: string | undefined, path: string) => {
+    const call = request(app.getHttpServer()).patch(path);
+    const res = await (token
+      ? call.set('Authorization', `Bearer ${token}`)
+      : call);
+
+    return { status: res.status, body: res.body as Envelope };
+  };
 
   const get = async (token?: string, path = '/admin/dashboard') => {
     const call = request(app.getHttpServer()).get(path);
@@ -197,5 +211,66 @@ describe('guarded admin routes', () => {
 
   it('401 on the listings with no token', async () => {
     expect((await get(undefined, '/admin/listings')).status).toBe(401);
+  });
+
+  const LISTING_ID = 'cccccccc-1111-4111-8111-111111111111';
+
+  it('200 when an admin approves a listing', async () => {
+    approve.mockResolvedValue({
+      message: 'Listing approved',
+      data: { id: LISTING_ID, status: 'approved', changed: true },
+    });
+
+    const { status, body } = await patch(
+      tokenFor('ADMIN'),
+      `/admin/listings/${LISTING_ID}/approve`,
+    );
+
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true, message: 'Listing approved' });
+  });
+
+  it('reads which admin approved it from the token', async () => {
+    approve.mockResolvedValue({ message: 'Listing approved', data: {} });
+
+    await patch(tokenFor('ADMIN'), `/admin/listings/${LISTING_ID}/approve`);
+
+    expect(approve).toHaveBeenCalledWith(LISTING_ID, 'someone');
+  });
+
+  it('403 when a seller tries to approve', async () => {
+    const { status } = await patch(
+      tokenFor('SELLER'),
+      `/admin/listings/${LISTING_ID}/approve`,
+    );
+
+    expect(status).toBe(403);
+  });
+
+  it('403 when a buyer tries to approve', async () => {
+    const { status } = await patch(
+      tokenFor('BUYER'),
+      `/admin/listings/${LISTING_ID}/approve`,
+    );
+
+    expect(status).toBe(403);
+  });
+
+  it('401 with no token', async () => {
+    const { status } = await patch(
+      undefined,
+      `/admin/listings/${LISTING_ID}/approve`,
+    );
+
+    expect(status).toBe(401);
+  });
+
+  it('400 when the id is not a uuid', async () => {
+    const { status } = await patch(
+      tokenFor('ADMIN'),
+      '/admin/listings/not-a-uuid/approve',
+    );
+
+    expect(status).toBe(400);
   });
 });

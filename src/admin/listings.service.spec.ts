@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Product } from '../products/entities/product.entity';
@@ -30,15 +31,22 @@ function listing(overrides: Partial<Product> = {}): Product {
 
 describe('ListingsService.list', () => {
   const find = jest.fn();
+  const findOne = jest.fn();
+  const update = jest.fn();
   let service: ListingsService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    findOne.mockResolvedValue(listing());
+    update.mockResolvedValue({ affected: 1 });
 
     const module = await Test.createTestingModule({
       providers: [
         ListingsService,
-        { provide: getRepositoryToken(Product), useValue: { find } },
+        {
+          provide: getRepositoryToken(Product),
+          useValue: { find, findOne, update },
+        },
       ],
     }).compile();
 
@@ -137,6 +145,89 @@ describe('ListingsService.list', () => {
     await expect(service.list()).resolves.toEqual({
       message: 'Listings retrieved',
       data: [],
+    });
+  });
+
+  describe('approve', () => {
+    const ID = 'cccccccc-1111-4111-8111-111111111111';
+    const ADMIN = '11111111-1111-4111-8111-111111111111';
+
+    it('flips a pending listing to approved', async () => {
+      await expect(service.approve(ID, ADMIN)).resolves.toEqual({
+        message: 'Listing approved',
+        data: { id: ID, status: 'approved', changed: true },
+      });
+      expect(update).toHaveBeenCalledWith(
+        { id: ID },
+        expect.objectContaining({ approvalStatus: 'approved' }),
+      );
+    });
+
+    it('clears the moderation note, which explained a rejection', async () => {
+      findOne.mockResolvedValue(
+        listing({ approvalStatus: 'rejected', moderationNote: 'Blurry' }),
+      );
+
+      await service.approve(ID, ADMIN);
+
+      expect(update).toHaveBeenCalledWith(
+        { id: ID },
+        expect.objectContaining({ moderationNote: null }),
+      );
+    });
+
+    it('records which admin did it, and when', async () => {
+      await service.approve(ID, ADMIN);
+
+      const [, values] = update.mock.calls[0] as [
+        unknown,
+        { moderatedBy: string | null; moderatedAt: Date },
+      ];
+
+      expect(values.moderatedBy).toBe(ADMIN);
+      expect(values.moderatedAt).toBeInstanceOf(Date);
+    });
+
+    it('records null rather than the super admin sentinel', async () => {
+      // `moderatedBy` is a uuid column; "super-admin" would fail the query.
+      await service.approve(ID, 'super-admin');
+
+      const [, values] = update.mock.calls[0] as [
+        unknown,
+        { moderatedBy: string | null },
+      ];
+
+      expect(values.moderatedBy).toBeNull();
+    });
+
+    it('is a no-op when it was already approved', async () => {
+      findOne.mockResolvedValue(listing({ approvalStatus: 'approved' }));
+
+      await expect(service.approve(ID, ADMIN)).resolves.toEqual({
+        message: 'That listing was already approved',
+        data: { id: ID, status: 'approved', changed: false },
+      });
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it.each(['rejected', 'removed'] as const)(
+      'can approve a %s listing, reinstating it',
+      async (status) => {
+        findOne.mockResolvedValue(listing({ approvalStatus: status }));
+
+        const { data } = await service.approve(ID, ADMIN);
+
+        expect(data.changed).toBe(true);
+      },
+    );
+
+    it('404s when nothing has that id', async () => {
+      findOne.mockResolvedValue(null);
+
+      await expect(service.approve(ID, ADMIN)).rejects.toThrow(
+        new NotFoundException('No listing found for that id'),
+      );
+      expect(update).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { ListingApprovalStatus } from '../common/constants/domain';
@@ -17,12 +17,11 @@ export interface ListingRow {
   date: string;
   /** pending | approved | rejected | removed */
   status: ListingApprovalStatus;
-  /**
-   * From product.imageUrl, which is not a column yet, so this is null on
-   * every row. See documentation/pending-profile-fields.md.
-   */
+  /** The listing's photo, or null when the seller listed without one. */
   image: string | null;
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class ListingsService {
@@ -30,6 +29,49 @@ export class ListingsService {
     @InjectRepository(Product)
     private readonly products: Repository<Product>,
   ) {}
+
+  /**
+   * Approves a listing, so buyers can finally see it.
+   *
+   * Approving an already approved one is a no-op rather than an error: an
+   * admin double-tapping a button should not get a failure.
+   *
+   * The moderation note is cleared, because it explained a rejection that no
+   * longer applies.
+   */
+  async approve(id: string, adminId: string) {
+    const listing = await this.products.findOne({ where: { id } });
+
+    if (!listing) {
+      throw new NotFoundException('No listing found for that id');
+    }
+
+    if (listing.approvalStatus === 'approved') {
+      return {
+        message: 'That listing was already approved',
+        data: { id, status: 'approved' as const, changed: false },
+      };
+    }
+
+    await this.products.update(
+      { id },
+      {
+        approvalStatus: 'approved',
+        moderationNote: null,
+        // `moderatedBy` is a uuid column, but the super admin's token carries
+        // the sentinel `sub` "super-admin", which is not one. Writing it would
+        // fail the query outright, so anything that is not a uuid is recorded
+        // as null - the timestamp still says when it happened.
+        moderatedBy: UUID.test(adminId) ? adminId : null,
+        moderatedAt: new Date(),
+      },
+    );
+
+    return {
+      message: 'Listing approved',
+      data: { id, status: 'approved' as const, changed: true },
+    };
+  }
 
   /** Every listing, newest first, whatever its approval state. */
   async list() {
