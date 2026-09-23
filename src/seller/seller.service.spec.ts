@@ -196,6 +196,30 @@ describe('SellerService', () => {
       expect(data.avatar).toBe('https://cdn/s.png');
     });
 
+    it('reports whether the email is verified', async () => {
+      userFindOne.mockResolvedValue({ id: USER_ID, emailVerified: true });
+
+      const { data } = await service.dashboard(USER_ID);
+
+      expect(data.isEmailVerified).toBe(true);
+    });
+
+    it('reports false when it is not', async () => {
+      userFindOne.mockResolvedValue({ id: USER_ID, emailVerified: false });
+
+      const { data } = await service.dashboard(USER_ID);
+
+      expect(data.isEmailVerified).toBe(false);
+    });
+
+    it('reports false rather than undefined when there is no user row', async () => {
+      userFindOne.mockResolvedValue(null);
+
+      const { data } = await service.dashboard(USER_ID);
+
+      expect(data.isEmailVerified).toBe(false);
+    });
+
     it('403s for an account with no shop', async () => {
       sellerFindOne.mockResolvedValue(null);
 

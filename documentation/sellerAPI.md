@@ -175,6 +175,7 @@ GET /api/seller/dashboard
     "name": "Ama Mensah",
     "avatar": "https://res.cloudinary.com/…/photo.png",
     "shopName": "Makola Fabrics",
+    "isEmailVerified": false,
     "totalListings": 10,
     "approved": 7,
     "pending": 2,
@@ -187,6 +188,8 @@ GET /api/seller/dashboard
 - `name` falls back to the shop name while `users.fullName` is unset - nothing
   writes that column yet, so expect the shop name in practice.
 - `avatar` is the owner's picture, falling back to the shop logo, then `null`.
+- `isEmailVerified` gates nothing on the server - an unverified seller can
+  still list products. It is there for the app to nag with.
 - The counts come from one grouped query, so they can never disagree.
   `totalListings` includes `removed` ones, which have no count of their own.
 

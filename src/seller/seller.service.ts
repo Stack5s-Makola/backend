@@ -100,6 +100,9 @@ export class SellerService {
         name: user?.fullName ?? shop.shopName,
         avatar: user?.avatarUrl ?? shop.logoUrl ?? null,
         shopName: shop.shopName,
+        // Nothing gates on this yet - an unverified seller can still list.
+        // The app uses it to nag.
+        isEmailVerified: user?.emailVerified ?? false,
         totalListings: counts.reduce((sum, row) => sum + Number(row.count), 0),
         approved: by('approved'),
         pending: by('pending'),
