@@ -57,6 +57,7 @@ describe('SellerService', () => {
   const sellerFindOne = jest.fn();
   const sellerUpdate = jest.fn();
   const userFindOne = jest.fn();
+  const userUpdate = jest.fn();
   const categorySave = jest.fn();
   const categoryGetOne = jest.fn();
   const uploadImage = jest.fn();
@@ -79,6 +80,7 @@ describe('SellerService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     sellerFindOne.mockResolvedValue(shop);
+    userUpdate.mockResolvedValue({ affected: 1 });
     userFindOne.mockResolvedValue({
       id: USER_ID,
       email: 'ama@example.com',
@@ -116,7 +118,7 @@ describe('SellerService', () => {
         },
         {
           provide: getRepositoryToken(User),
-          useValue: { findOne: userFindOne },
+          useValue: { findOne: userFindOne, update: userUpdate },
         },
         { provide: UploadsService, useValue: { uploadImage } },
       ],
@@ -383,6 +385,65 @@ describe('SellerService', () => {
         ForbiddenException,
       );
       expect(productInsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateProfilePicture', () => {
+    it('uploads the picture and returns its url', async () => {
+      await expect(
+        service.updateProfilePicture(USER_ID, image),
+      ).resolves.toEqual({
+        message: 'Profile picture updated',
+        data: { avatar: 'https://cdn/pic.png', logo: 'https://cdn/pic.png' },
+      });
+    });
+
+    it('writes it to the account and the shop', async () => {
+      await service.updateProfilePicture(USER_ID, image);
+
+      expect(userUpdate).toHaveBeenCalledWith(
+        { id: USER_ID },
+        { avatarUrl: 'https://cdn/pic.png' },
+      );
+      expect(sellerUpdate).toHaveBeenCalledWith(
+        { id: SHOP_ID },
+        { logoUrl: 'https://cdn/pic.png' },
+      );
+    });
+
+    it('400s when no picture was sent', async () => {
+      await expect(service.updateProfilePicture(USER_ID)).rejects.toThrow(
+        'No picture was sent',
+      );
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a file that is not an image', async () => {
+      await expect(
+        service.updateProfilePicture(USER_ID, {
+          ...image,
+          mimetype: 'application/pdf',
+        }),
+      ).rejects.toThrow('must be an image');
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('leaves the old picture alone when the upload fails', async () => {
+      uploadImage.mockRejectedValue(new Error('cloudinary is down'));
+
+      await expect(
+        service.updateProfilePicture(USER_ID, image),
+      ).rejects.toThrow('could not be uploaded');
+      expect(userUpdate).not.toHaveBeenCalled();
+      expect(sellerUpdate).not.toHaveBeenCalled();
+    });
+
+    it('403s for an account with no shop', async () => {
+      sellerFindOne.mockResolvedValue(null);
+
+      await expect(
+        service.updateProfilePicture(USER_ID, image),
+      ).rejects.toThrow(ForbiddenException);
     });
   });
 });

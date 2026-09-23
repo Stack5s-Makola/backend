@@ -51,6 +51,22 @@ export class SellerController {
   }
 
   /**
+   * POST /api/seller/me/update/profile-picture - replace the picture.
+   *
+   * Multipart with an `image` field. Sets both the account's avatar and the
+   * shop's logo, so every screen picks it up.
+   */
+  @Post('me/update/profile-picture')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('image'))
+  updateProfilePicture(
+    @CurrentUser() user: JwtPayload,
+    @UploadedFile() image?: UploadedImage,
+  ) {
+    return this.seller.updateProfilePicture(user.sub, image);
+  }
+
+  /**
    * POST /api/seller/add - list a product.
    *
    * JSON, or multipart with an `image` field.

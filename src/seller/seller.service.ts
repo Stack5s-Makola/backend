@@ -146,6 +146,36 @@ export class SellerService {
   }
 
   /**
+   * Replaces the seller's profile picture.
+   *
+   * The new one goes to Cloudinary before anything is written, so a failed
+   * upload leaves the old picture in place rather than clearing it.
+   *
+   * It is written to both `users.avatarUrl` and `sellers.logoUrl`: the buyer
+   * and admin screens read the shop's logo, the seller's own screens read the
+   * account's avatar, and one picture at sign-up should light up all of them.
+   */
+  async updateProfilePicture(userId: string, image?: UploadedImage) {
+    const shop = await this.shopOf(userId);
+
+    if (!image) {
+      throw new BadRequestException('No picture was sent');
+    }
+
+    const url = await this.upload(image);
+
+    await Promise.all([
+      this.users.update({ id: userId }, { avatarUrl: url }),
+      this.sellers.update({ id: shop.id }, { logoUrl: url }),
+    ]);
+
+    return {
+      message: 'Profile picture updated',
+      data: { avatar: url ?? null, logo: url ?? null },
+    };
+  }
+
+  /**
    * Lists a new product.
    *
    * It starts as `pending`: an admin decides when shoppers see it. The
@@ -217,11 +247,11 @@ export class SellerService {
     }
 
     if (!image.mimetype?.startsWith('image/')) {
-      throw new BadRequestException('The product image must be an image');
+      throw new BadRequestException('The file must be an image');
     }
 
     if (image.size > MAX_IMAGE_BYTES) {
-      throw new BadRequestException('The product image must be under 5MB');
+      throw new BadRequestException('The image must be under 5MB');
     }
 
     try {
@@ -238,7 +268,7 @@ export class SellerService {
       // on it gives "[object Object]" and loses the reason entirely.
       this.logger.error(`Cloudinary upload failed: ${describe(error)}`);
 
-      throw new BadRequestException('The product image could not be uploaded');
+      throw new BadRequestException('The image could not be uploaded');
     }
   }
 
