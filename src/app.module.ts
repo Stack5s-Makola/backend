@@ -24,6 +24,8 @@ import { LoginModule } from './login/login.module';
 import { PasswordModule } from './password/password.module';
 import { BuyerModule } from './buyer/buyer.module';
 import { SellerModule } from './seller/seller.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { MapModule } from './map/map.module';
 
 @Module({
   imports: [
@@ -48,6 +50,8 @@ import { SellerModule } from './seller/seller.module';
     PasswordModule,
     BuyerModule,
     SellerModule,
+    NotificationsModule,
+    MapModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -7,24 +7,21 @@ import { User } from '../users/entities/user.entity';
 /** One row of the admin sellers table. */
 export interface SellerRow {
   id: string;
-  /**
-   * The person behind the shop, from users.fullName.
-   *
-   * That column does not exist yet, so this is null on every row until a
-   * migration adds it; `email` is the only human identifier the schema has
-   * today. See documentation/pending-profile-fields.md.
-   */
+  /** The person behind the shop, from users.fullName. */
   name: string | null;
   email: string | null;
-  /**
-   * The shop's logo, falling back to the owner's avatar.
-   *
-   * Both sources are pending the same migration, so this is null for now.
-   */
+  /** The shop's logo, falling back to the owner's avatar. */
   profilePicture: string | null;
   businessName: string;
   /** Coordinates only - there is no text address column to fall back on. */
   location: { latitude: number; longitude: number } | null;
+  /**
+   * Whether the owner confirmed their email address.
+   *
+   * This is the verification the dashboard goes by. `status` below is the
+   * separate shop verification, which nothing sets yet.
+   */
+  isEmailVerified: boolean;
   status: string;
 }
 
@@ -57,6 +54,7 @@ export class SellersService {
           profilePicture: seller.logoUrl ?? owner?.avatarUrl ?? null,
           businessName: seller.shopName,
           location: this.location(seller),
+          isEmailVerified: owner?.emailVerified ?? false,
           status: seller.verificationStatus,
         };
       }) satisfies SellerRow[],
@@ -79,8 +77,6 @@ export class SellersService {
       return new Map<string, User>();
     }
 
-    // No `select`: fullName and avatarUrl are not columns yet, and naming
-    // them in one would put them in the SQL and fail the query.
     const owners = await this.users.find({ where: { id: In(ids) } });
 
     return new Map(owners.map((owner) => [owner.id, owner]));

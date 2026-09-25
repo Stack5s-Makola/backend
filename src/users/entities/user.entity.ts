@@ -44,6 +44,7 @@ export class User {
   // until a migration adds them - see documentation/pending-profile-fields.md.
 
   /** The person's display name, shown in the admin tables. */
+  @Column({ nullable: true })
   fullName?: string;
 
   /** Their avatar, stored as a Cloudinary URL like the uploads module returns. */

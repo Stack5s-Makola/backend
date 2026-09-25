@@ -1,8 +1,17 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsIn, IsString, Matches, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import {
   normalisedEmail,
   normalisedPhone,
+  trimmed,
   upperCased,
 } from '../../common/transforms';
 import { SELF_SERVICE_ROLES } from './set-seller-profile.dto';
@@ -30,6 +39,13 @@ export class RegisterBuyerDto {
   @IsString()
   @MinLength(8, { message: 'Password must be at least 8 characters long' })
   password!: string;
+
+  /** Optional: a buyer can sign up without giving one. */
+  @IsOptional()
+  @Transform(trimmed)
+  @IsString()
+  @MaxLength(120)
+  name?: string;
 
   @Transform(upperCased)
   @IsIn(SELF_SERVICE_ROLES, {

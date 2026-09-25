@@ -4,6 +4,9 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UploadedFile,
@@ -21,6 +24,7 @@ import {
   UpdatePhoneDto,
   UpdateShopNameDto,
 } from './dto';
+import { NotificationsService } from '../notifications/notifications.service';
 import { SellerService } from './seller.service';
 import type { UploadedImage } from './seller.service';
 
@@ -36,7 +40,43 @@ import type { UploadedImage } from './seller.service';
 @Controller('seller')
 @UseGuards(JwtAuthGuard)
 export class SellerController {
-  constructor(private readonly seller: SellerService) {}
+  constructor(
+    private readonly seller: SellerService,
+    private readonly notifications: NotificationsService,
+  ) {}
+
+  /**
+   * GET /api/seller/notifications - the bell screen, newest first.
+   *
+   * ?unread=true narrows it to the ones not yet opened.
+   */
+  @Get('notifications')
+  notifications_(@CurrentUser() user: JwtPayload, @Query('unread') unread?: string) {
+    return this.notifications.listFor(user.sub, unread === 'true');
+  }
+
+  /** GET /api/seller/notifications/unread-count - the badge on the bell. */
+  @Get('notifications/unread-count')
+  unreadCount(@CurrentUser() user: JwtPayload) {
+    return this.notifications.unreadCountFor(user.sub);
+  }
+
+  /** PATCH /api/seller/notifications/read-all - clear the badge. */
+  @Patch('notifications/read-all')
+  @HttpCode(HttpStatus.OK)
+  markAllRead(@CurrentUser() user: JwtPayload) {
+    return this.notifications.markAllRead(user.sub);
+  }
+
+  /** PATCH /api/seller/notifications/:id/read - open one. */
+  @Patch('notifications/:id/read')
+  @HttpCode(HttpStatus.OK)
+  markRead(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.notifications.markRead(user.sub, id);
+  }
 
   /** GET /api/seller/dashboard - name, avatar, counts, 5 newest listings. */
   @Get('dashboard')
