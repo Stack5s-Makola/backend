@@ -39,6 +39,17 @@ export class Seller {
   @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
   longitude?: number;
 
+  /**
+   * The place the coordinates resolve to, from Mapbox.
+   *
+   * Kept alongside the coordinates, not instead of them: this is what people
+   * read, while latitude and longitude are what nearby search and distance
+   * sorting are computed from. Null when Mapbox knew nothing about the spot,
+   * or was unreachable when the shop was created.
+   */
+  @Column({ nullable: true })
+  locationName?: string;
+
   // Deliberately NOT a @Column: `sellers` has no such column yet, and
   // declaring one puts it in every query against this table. Declared so the
   // admin sellers table can read it once a migration adds it - see

@@ -6,7 +6,9 @@ import { getDataSourceToken } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { QueryFailedError } from 'typeorm';
 import { JwtPayload } from '../common/guards/jwt-auth.guard';
+import { MapService } from '../map/map.service';
 import { OtpService } from '../otp/otp.service';
+import { MapService } from '../map/map.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
@@ -39,11 +41,13 @@ describe('RegisterService.setSellerProfile', () => {
   const transaction = jest.fn();
   const issue = jest.fn();
   const uploadImage = jest.fn();
+  const reverseGeocode = jest.fn();
   let service: RegisterService;
   let jwt: JwtService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    reverseGeocode.mockResolvedValue('Ussher Town, Accra, Ghana');
     uploadImage.mockResolvedValue({ secure_url: 'https://cdn/pic.jpg' });
     // Nothing taken by default.
     findOne.mockResolvedValue(null);
@@ -68,6 +72,7 @@ describe('RegisterService.setSellerProfile', () => {
         },
         { provide: OtpService, useValue: { issue } },
         { provide: UploadsService, useValue: { uploadImage } },
+        { provide: MapService, useValue: { reverseGeocode } },
       ],
     }).compile();
 
@@ -166,6 +171,7 @@ describe('RegisterService.setSellerProfile', () => {
       shopName: 'Makola Fabrics',
       latitude: 5.55,
       longitude: -0.2,
+      locationName: 'Ussher Town, Accra, Ghana',
     });
   });
 

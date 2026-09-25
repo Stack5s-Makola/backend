@@ -97,6 +97,7 @@ describe('SellersService.list', () => {
         profilePicture: null,
         businessName: 'Makola Fabrics',
         location: { latitude: 5.55, longitude: -0.2 },
+        locationName: null,
         isEmailVerified: false,
         status: 'approved',
       },

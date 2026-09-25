@@ -142,6 +142,7 @@ describe('BuyerService', () => {
               shopName: 'Makola Fabrics',
             },
             location: NEARBY,
+            locationName: null,
             listedAt: '2026-05-06T11:00:00.000Z',
           },
         ],
@@ -417,6 +418,7 @@ describe('BuyerService', () => {
           shopName: 'Makola Fabrics',
           logo: null,
           location: NEARBY,
+          locationName: null,
           verificationStatus: 'approved',
         },
       ]);

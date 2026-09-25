@@ -82,6 +82,31 @@ export class MapService {
     return (await response.json()) as T;
   }
 
+  /**
+   * Turns coordinates into a place name.
+   *
+   * Mapbox returns a stack of features from most specific to least - a
+   * street, then a neighbourhood, then a town, then a country. The first
+   * one's `place_name` is the full address; that is what people recognise.
+   *
+   * Returns null rather than throwing when Mapbox knows nothing about the
+   * spot, so a caller can fall back to the raw coordinates.
+   */
+  async reverseGeocode(
+    latitude: number,
+    longitude: number,
+  ): Promise<string | null> {
+    // Mapbox takes longitude first. Getting this round the wrong way puts
+    // Accra in the Atlantic, and it fails silently.
+    const body = await this.get<{
+      features?: { place_name?: string }[];
+    }>(`/geocoding/v5/mapbox.places/${longitude},${latitude}.json`, {
+      limit: '1',
+    });
+
+    return body.features?.[0]?.place_name ?? null;
+  }
+
   /** Whether a token is configured at all, without throwing. */
   isConfigured(): boolean {
     return Boolean(this.config.get<string>('MAPBOX_SECRET_TOKEN'));

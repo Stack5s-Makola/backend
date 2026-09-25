@@ -8,6 +8,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Category } from '../categories/entities/Categories.entity';
 import { Product } from '../products/entities/product.entity';
 import { Seller } from '../sellers/entities/seller.entity';
+import { MapService } from '../map/map.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { User } from '../users/entities/user.entity';
 import { AddProductDto } from './dto';
@@ -66,6 +67,7 @@ describe('SellerService', () => {
   const categorySave = jest.fn();
   const categoryGetOne = jest.fn();
   const uploadImage = jest.fn();
+  const reverseGeocode = jest.fn();
   const getRawMany = jest.fn();
   let service: SellerService;
 
@@ -89,6 +91,7 @@ describe('SellerService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    reverseGeocode.mockResolvedValue('Ussher Town, Accra, Ghana');
     sellerFindOne.mockResolvedValue(shop);
     userUpdate.mockResolvedValue({ affected: 1 });
     sellerUpdate.mockResolvedValue({ affected: 1 });
@@ -137,6 +140,7 @@ describe('SellerService', () => {
           useValue: { findOne: userFindOne, update: userUpdate },
         },
         { provide: UploadsService, useValue: { uploadImage } },
+        { provide: MapService, useValue: { reverseGeocode } },
       ],
     }).compile();
 
@@ -374,7 +378,11 @@ describe('SellerService', () => {
 
       expect(sellerUpdate).toHaveBeenCalledWith(
         { id: SHOP_ID },
-        { latitude: 6.7, longitude: -1.62 },
+        {
+          latitude: 6.7,
+          longitude: -1.62,
+          locationName: 'Ussher Town, Accra, Ghana',
+        },
       );
     });
 
@@ -535,11 +543,18 @@ describe('SellerService', () => {
         service.updateLocation(USER_ID, { latitude: 6.7, longitude: -1.62 }),
       ).resolves.toEqual({
         message: 'Location updated',
-        data: { location: { latitude: 6.7, longitude: -1.62 } },
+        data: {
+          location: { latitude: 6.7, longitude: -1.62 },
+          locationName: 'Ussher Town, Accra, Ghana',
+        },
       });
       expect(sellerUpdate).toHaveBeenCalledWith(
         { id: SHOP_ID },
-        { latitude: 6.7, longitude: -1.62 },
+        {
+          latitude: 6.7,
+          longitude: -1.62,
+          locationName: 'Ussher Town, Accra, Ghana',
+        },
       );
     });
 

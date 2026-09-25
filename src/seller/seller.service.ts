@@ -10,6 +10,7 @@ import { Repository } from 'typeorm';
 import { Category } from '../categories/entities/Categories.entity';
 import { Product } from '../products/entities/product.entity';
 import { Seller } from '../sellers/entities/seller.entity';
+import { MapService } from '../map/map.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { User } from '../users/entities/user.entity';
 import {
@@ -62,6 +63,7 @@ export class SellerService {
     @InjectRepository(User)
     private readonly users: Repository<User>,
     private readonly uploads: UploadsService,
+    private readonly map: MapService,
   ) {}
 
   /**
@@ -149,6 +151,7 @@ export class SellerService {
         description: shop.description ?? null,
         logo: shop.logoUrl ?? null,
         location: coordinates(shop),
+        locationName: shop.locationName ?? null,
         verificationStatus: shop.verificationStatus,
         joined: shop.createdAt.toISOString(),
       },
@@ -210,19 +213,49 @@ export class SellerService {
     return { message: 'Shop name updated', data: { shopName } };
   }
 
-  /** Moves the shop. Every listing shows wherever the shop is. */
+  /**
+   * Moves the shop. Every listing shows wherever the shop is.
+   *
+   * The place name is resolved again, because the old one describes where the
+   * shop used to be. A failed lookup clears it rather than leaving the
+   * previous name against the new coordinates.
+   */
   async updateLocation(
     userId: string,
     { latitude, longitude }: UpdateLocationDto,
   ) {
     const shop = await this.shopOf(userId);
+    const locationName = await this.placeName(latitude, longitude);
 
-    await this.sellers.update({ id: shop.id }, { latitude, longitude });
+    await this.sellers.update(
+      { id: shop.id },
+      { latitude, longitude, locationName: locationName ?? undefined },
+    );
 
     return {
       message: 'Location updated',
-      data: { location: { latitude, longitude } },
+      data: { location: { latitude, longitude }, locationName },
     };
+  }
+
+  /**
+   * Turns coordinates into a place name, or null.
+   *
+   * Never throws: the name is for display, the coordinates are what search
+   * works from, so Mapbox being down must not stop a shop moving.
+   */
+  private async placeName(latitude: number, longitude: number) {
+    try {
+      return await this.map.reverseGeocode(latitude, longitude);
+    } catch (error) {
+      this.logger.error(
+        `Could not resolve ${latitude},${longitude} to a place name: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+
+      return null;
+    }
   }
 
   /**
@@ -261,11 +294,19 @@ export class SellerService {
     const category = await this.categoryNamed(dto.category);
 
     // Coordinates belong to the shop, not the listing - there is no column
-    // for a per-product location. Sending them moves the whole shop.
+    // for a per-product location. Sending them moves the whole shop, so the
+    // place name has to be resolved again or it describes where the shop
+    // used to be.
     if (dto.latitude !== undefined && dto.longitude !== undefined) {
+      const locationName = await this.placeName(dto.latitude, dto.longitude);
+
       await this.sellers.update(
         { id: shop.id },
-        { latitude: dto.latitude, longitude: dto.longitude },
+        {
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          locationName: locationName ?? undefined,
+        },
       );
     }
 
