@@ -13,8 +13,10 @@ export interface SellerRow {
   /** The shop's logo, falling back to the owner's avatar. */
   profilePicture: string | null;
   businessName: string;
-  /** Coordinates only - there is no text address column to fall back on. */
+  /** Coordinates, for maps and distance. */
   location: { latitude: number; longitude: number } | null;
+  /** What those coordinates resolve to, from Mapbox. Null if never resolved. */
+  locationName: string | null;
   /**
    * Whether the owner confirmed their email address.
    *
@@ -54,6 +56,7 @@ export class SellersService {
           profilePicture: seller.logoUrl ?? owner?.avatarUrl ?? null,
           businessName: seller.shopName,
           location: this.location(seller),
+          locationName: seller.locationName ?? null,
           isEmailVerified: owner?.emailVerified ?? false,
           status: seller.verificationStatus,
         };

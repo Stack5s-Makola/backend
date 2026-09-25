@@ -51,7 +51,10 @@ export class SellerController {
    * ?unread=true narrows it to the ones not yet opened.
    */
   @Get('notifications')
-  notifications_(@CurrentUser() user: JwtPayload, @Query('unread') unread?: string) {
+  notifications_(
+    @CurrentUser() user: JwtPayload,
+    @Query('unread') unread?: string,
+  ) {
     return this.notifications.listFor(user.sub, unread === 'true');
   }
 

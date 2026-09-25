@@ -44,6 +44,7 @@ export interface ListingDetail extends ListingRow {
     logo: string | null;
     location: { latitude: number; longitude: number } | null;
     verificationStatus: string;
+    locationName: string | null;
     ownerName: string | null;
     ownerEmail: string | null;
     ownerPhone: string | null;
@@ -104,6 +105,7 @@ export class ListingsService {
               logo: listing.seller.logoUrl ?? null,
               location: this.location(listing),
               verificationStatus: listing.seller.verificationStatus,
+              locationName: listing.seller.locationName ?? null,
               ownerName: owner?.fullName ?? null,
               ownerEmail: owner?.email ?? null,
               ownerPhone: owner?.phone ?? null,

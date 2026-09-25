@@ -26,6 +26,8 @@ export interface ProductCard {
   seller: { id: string; shopName: string } | null;
   /** The seller's coordinates - a product has none of its own. */
   location: { latitude: number; longitude: number } | null;
+  /** What those coordinates resolve to, for showing under the shop name. */
+  locationName: string | null;
   /** Kilometres from the caller. Only present when they sent coordinates. */
   distanceKm?: number;
   listedAt: string;
@@ -38,6 +40,7 @@ export interface ShopCard {
   /** From seller.logoUrl, which is not a column yet, so null for now. */
   logo: string | null;
   location: { latitude: number; longitude: number } | null;
+  locationName: string | null;
   verificationStatus: string;
 }
 
@@ -91,6 +94,7 @@ export class BuyerService {
               shopName: listing.seller.shopName,
               logo: listing.seller.logoUrl ?? null,
               location: coordinates(listing.seller),
+              locationName: listing.seller.locationName ?? null,
               verificationStatus: listing.seller.verificationStatus,
             }
           : null,
@@ -193,6 +197,7 @@ export class BuyerService {
           shopName: row.seller.shopName,
           logo: row.seller.logoUrl ?? null,
           location: coordinates(row.seller),
+          locationName: row.seller.locationName ?? null,
           verificationStatus: row.seller.verificationStatus,
         })),
     };
@@ -307,6 +312,7 @@ export class BuyerService {
         ? { id: listing.seller.id, shopName: listing.seller.shopName }
         : null,
       location: this.location(listing),
+      locationName: listing.seller?.locationName ?? null,
       listedAt: listing.createdAt.toISOString(),
     };
   }

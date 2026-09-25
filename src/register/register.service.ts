@@ -9,6 +9,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { DataSource, QueryFailedError } from 'typeorm';
 import { JwtPayload } from '../common/guards/jwt-auth.guard';
+import { MapService } from '../map/map.service';
 import { OtpService } from '../otp/otp.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { Seller } from '../sellers/entities/seller.entity';
@@ -59,7 +60,29 @@ export class RegisterService {
     private readonly otp: OtpService,
     private readonly jwt: JwtService,
     private readonly uploads: UploadsService,
+    private readonly map: MapService,
   ) {}
+
+  /**
+   * Turns coordinates into a place name, or null.
+   *
+   * Never throws. A shop with coordinates but no readable name is fine - the
+   * name is for display, the coordinates are what search works from - so
+   * Mapbox being down must not stop someone registering.
+   */
+  private async placeName(latitude: number, longitude: number) {
+    try {
+      return await this.map.reverseGeocode(latitude, longitude);
+    } catch (error) {
+      this.logger.error(
+        `Could not resolve ${latitude},${longitude} to a place name: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+
+      return null;
+    }
+  }
 
   /**
    * Creates a seller in one step: the account, its hashed password and the
@@ -80,10 +103,14 @@ export class RegisterService {
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
-    // Uploaded before the transaction: Cloudinary is a network call, and
-    // holding a database transaction open across one is asking for trouble.
-    // A failed upload fails the request, before any account exists.
+    // Both network calls happen before the transaction: holding one open
+    // across a third party request is asking for trouble. A failed upload
+    // fails the request, before any account exists; a failed lookup does not.
     const avatarUrl = await this.upload(image);
+    const locationName = await this.placeName(
+      location.latitude,
+      location.longitude,
+    );
 
     let userId: string;
 
@@ -105,6 +132,9 @@ export class RegisterService {
           shopName,
           latitude: location.latitude,
           longitude: location.longitude,
+          // `undefined` leaves the column alone; the entity's field is
+          // optional rather than nullable, so null is not assignable.
+          locationName: locationName ?? undefined,
         });
 
         return id;
