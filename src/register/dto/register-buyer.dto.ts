@@ -1,7 +1,9 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsEmail,
   IsIn,
+  IsLatitude,
+  IsLongitude,
   IsOptional,
   IsString,
   Matches,
@@ -46,6 +48,23 @@ export class RegisterBuyerDto {
   @IsString()
   @MaxLength(120)
   name?: string;
+
+  /**
+   * Where the buyer is, from the device.
+   *
+   * Optional, and flat rather than nested so a multipart sign-up can send it.
+   * Both or neither - one alone is not a position. The server turns them into
+   * a readable place name and stores that too.
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsLatitude({ message: 'latitude must be between -90 and 90' })
+  latitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsLongitude({ message: 'longitude must be between -180 and 180' })
+  longitude?: number;
 
   @Transform(upperCased)
   @IsIn(SELF_SERVICE_ROLES, {

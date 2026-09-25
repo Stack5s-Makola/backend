@@ -1,5 +1,10 @@
-import { NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import * as bcrypt from 'bcrypt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Category } from '../categories/entities/Categories.entity';
 import { Product } from '../products/entities/product.entity';
@@ -7,6 +12,8 @@ import { Seller } from '../sellers/entities/seller.entity';
 import { SavedProduct } from '../saved/entities/SavedProduct.entity';
 import { SavedSeller } from '../saved/entities/SavedSeller.entity';
 import { User } from '../users/entities/user.entity';
+import { MapService } from '../map/map.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { BuyerService } from './buyer.service';
 
 const LISTED = new Date('2026-05-06T11:00:00.000Z');
@@ -44,6 +51,9 @@ describe('BuyerService', () => {
   const productFindOne = jest.fn();
   const userFindOne = jest.fn();
   const sellerGetMany = jest.fn();
+  const reverseGeocode = jest.fn();
+  const uploadImage = jest.fn();
+  const userUpdate = jest.fn();
   const countsGetRawMany = jest.fn();
   const savedProductFind = jest.fn();
   const savedShopFind = jest.fn();
@@ -98,6 +108,9 @@ describe('BuyerService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     sellerGetMany.mockResolvedValue([]);
+    reverseGeocode.mockResolvedValue('Ussher Town, Accra, Ghana');
+    uploadImage.mockResolvedValue({ secure_url: 'https://cdn/pic.png' });
+    userUpdate.mockResolvedValue({ affected: 1 });
     countsGetRawMany.mockResolvedValue([]);
     getMany.mockResolvedValue([]);
     savedProductFind.mockResolvedValue([]);
@@ -139,12 +152,14 @@ describe('BuyerService', () => {
         },
         {
           provide: getRepositoryToken(User),
-          useValue: { findOne: userFindOne },
+          useValue: { findOne: userFindOne, update: userUpdate },
         },
         {
           provide: getRepositoryToken(Seller),
           useValue: { createQueryBuilder: () => sellerNearbyBuilder },
         },
+        { provide: MapService, useValue: { reverseGeocode } },
+        { provide: UploadsService, useValue: { uploadImage } },
       ],
     }).compile();
 
@@ -538,6 +553,7 @@ describe('BuyerService', () => {
           name: null,
           profilePicture: null,
           email: 'kofi@example.com',
+          locationName: null,
         },
       });
     });
@@ -587,6 +603,7 @@ describe('BuyerService', () => {
           role: 'BUYER',
           status: 'active',
           emailVerified: true,
+          locationName: null,
           joined: '2026-03-04T09:30:00.000Z',
         },
       });
@@ -686,6 +703,293 @@ describe('BuyerService', () => {
         message: 'Shops retrieved',
         data: [],
       });
+    });
+  });
+
+  describe('location on the profile', () => {
+    it('shows the place name, not the coordinates', async () => {
+      userFindOne.mockResolvedValue({
+        id: 'user-a',
+        email: 'kofi@example.com',
+        latitude: 5.5473,
+        longitude: -0.2107,
+        locationName: 'Ussher Town, Accra, Ghana',
+        createdAt: new Date('2026-03-04T09:30:00.000Z'),
+      });
+
+      const { data } = await service.profile('user-a');
+
+      expect(data.locationName).toBe('Ussher Town, Accra, Ghana');
+      expect(JSON.stringify(data)).not.toContain('5.5473');
+    });
+
+    it('is null for an account that never set one', async () => {
+      const { data } = await service.profile('user-a');
+
+      expect(data.locationName).toBeNull();
+    });
+
+    it('appears on personal details too', async () => {
+      userFindOne.mockResolvedValue({
+        id: 'user-a',
+        email: 'kofi@example.com',
+        locationName: 'Adum, Kumasi, Ghana',
+        createdAt: new Date('2026-03-04T09:30:00.000Z'),
+      });
+
+      const { data } = await service.personalDetails('user-a');
+
+      expect(data.locationName).toBe('Adum, Kumasi, Ghana');
+    });
+  });
+
+  describe('updateLocation', () => {
+    it('resolves the coordinates and stores both', async () => {
+      await expect(
+        service.updateLocation('user-a', 5.5473, -0.2107),
+      ).resolves.toEqual({
+        message: 'Location updated',
+        data: { locationName: 'Ussher Town, Accra, Ghana' },
+      });
+
+      expect(userUpdate).toHaveBeenCalledWith(
+        { id: 'user-a' },
+        {
+          latitude: 5.5473,
+          longitude: -0.2107,
+          locationName: 'Ussher Town, Accra, Ghana',
+        },
+      );
+    });
+
+    it('still saves the coordinates when Mapbox knows nothing', async () => {
+      reverseGeocode.mockResolvedValue(null);
+
+      const { data } = await service.updateLocation('user-a', 0, 0);
+
+      expect(data.locationName).toBeNull();
+      expect(userUpdate).toHaveBeenCalled();
+    });
+
+    it('still saves them when Mapbox is down', async () => {
+      reverseGeocode.mockRejectedValue(new Error('mapbox is down'));
+
+      const { data } = await service.updateLocation('user-a', 5.5, -0.2);
+
+      expect(data.locationName).toBeNull();
+      expect(userUpdate).toHaveBeenCalled();
+    });
+
+    it('404s when the account is gone', async () => {
+      userFindOne.mockResolvedValue(null);
+
+      await expect(service.updateLocation('user-a', 5.5, -0.2)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateName', () => {
+    it('changes the name', async () => {
+      await expect(
+        service.updateName('user-a', 'Kofi Boateng'),
+      ).resolves.toEqual({
+        message: 'Name updated',
+        data: { name: 'Kofi Boateng' },
+      });
+      expect(userUpdate).toHaveBeenCalledWith(
+        { id: 'user-a' },
+        { fullName: 'Kofi Boateng' },
+      );
+    });
+
+    it('404s when the account is gone', async () => {
+      userFindOne.mockResolvedValue(null);
+
+      await expect(service.updateName('user-a', 'x')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updatePhone', () => {
+    it('changes the number', async () => {
+      // The account lookup finds them; the uniqueness lookup finds nobody.
+      userFindOne
+        .mockResolvedValueOnce({ id: 'user-a', email: 'k@example.com' })
+        .mockResolvedValueOnce(null);
+
+      await expect(
+        service.updatePhone('user-a', '0209999999'),
+      ).resolves.toEqual({
+        message: 'Phone number updated',
+        data: { phone: '0209999999' },
+      });
+    });
+
+    it('409s when another account has that number', async () => {
+      userFindOne
+        .mockResolvedValueOnce({ id: 'user-a' })
+        .mockResolvedValueOnce({ id: 'someone-else' });
+
+      await expect(service.updatePhone('user-a', '0209999999')).rejects.toThrow(
+        ConflictException,
+      );
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('excludes the caller from the uniqueness check', async () => {
+      userFindOne
+        .mockResolvedValueOnce({ id: 'user-a' })
+        .mockResolvedValueOnce(null);
+
+      await service.updatePhone('user-a', '0209999999');
+
+      const [options] = userFindOne.mock.calls[1] as [
+        { where: Record<string, unknown> },
+      ];
+
+      expect(options.where).toHaveProperty('id');
+    });
+  });
+
+  describe('changePassword', () => {
+    const CURRENT = 'correct-horse';
+    let hash: string;
+
+    beforeAll(async () => {
+      hash = await bcrypt.hash(CURRENT, 10);
+    });
+
+    beforeEach(() => {
+      userFindOne.mockResolvedValue({
+        id: 'user-a',
+        email: 'k@example.com',
+        passwordHash: hash,
+        createdAt: new Date(),
+      });
+    });
+
+    it('changes it when the current password is right', async () => {
+      await expect(
+        service.changePassword('user-a', CURRENT, 'a-new-password'),
+      ).resolves.toEqual({
+        message: 'Password changed',
+        data: { changed: true },
+      });
+    });
+
+    it('stores a bcrypt hash the new password matches', async () => {
+      await service.changePassword('user-a', CURRENT, 'a-new-password');
+
+      const [, values] = userUpdate.mock.calls[0] as [
+        unknown,
+        { passwordHash: string },
+      ];
+
+      await expect(
+        bcrypt.compare('a-new-password', values.passwordHash),
+      ).resolves.toBe(true);
+      await expect(bcrypt.compare(CURRENT, values.passwordHash)).resolves.toBe(
+        false,
+      );
+    });
+
+    it('401s on the wrong current password, and writes nothing', async () => {
+      await expect(
+        service.changePassword('user-a', 'wrong', 'a-new-password'),
+      ).rejects.toThrow(
+        new UnauthorizedException('Your current password is incorrect'),
+      );
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('touches no field but the password', async () => {
+      await service.changePassword('user-a', CURRENT, 'a-new-password');
+
+      const [, values] = userUpdate.mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+
+      expect(Object.keys(values)).toEqual(['passwordHash']);
+    });
+
+    it('never returns the hash', async () => {
+      const result = await service.changePassword(
+        'user-a',
+        CURRENT,
+        'a-new-password',
+      );
+
+      expect(JSON.stringify(result)).not.toContain('$2b$');
+    });
+  });
+
+  describe('updateProfilePicture', () => {
+    const image = {
+      buffer: Buffer.from('fake'),
+      mimetype: 'image/png',
+      size: 1024,
+    };
+
+    it('uploads it and stores the url', async () => {
+      await expect(
+        service.updateProfilePicture('user-a', image),
+      ).resolves.toEqual({
+        message: 'Profile picture updated',
+        data: { profilePicture: 'https://cdn/pic.png' },
+      });
+      expect(userUpdate).toHaveBeenCalledWith(
+        { id: 'user-a' },
+        { avatarUrl: 'https://cdn/pic.png' },
+      );
+    });
+
+    it('400s when no picture was sent', async () => {
+      await expect(service.updateProfilePicture('user-a')).rejects.toThrow(
+        'No picture was sent',
+      );
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects a file that is not an image', async () => {
+      await expect(
+        service.updateProfilePicture('user-a', {
+          ...image,
+          mimetype: 'application/pdf',
+        }),
+      ).rejects.toThrow('must be an image');
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('rejects anything over 5MB', async () => {
+      await expect(
+        service.updateProfilePicture('user-a', {
+          ...image,
+          size: 6 * 1024 * 1024,
+        }),
+      ).rejects.toThrow('under 5MB');
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('leaves the old picture alone when the upload fails', async () => {
+      uploadImage.mockRejectedValue(new Error('cloudinary is down'));
+
+      await expect(
+        service.updateProfilePicture('user-a', image),
+      ).rejects.toThrow('could not be uploaded');
+      expect(userUpdate).not.toHaveBeenCalled();
+    });
+
+    it('404s when the account is gone', async () => {
+      userFindOne.mockResolvedValue(null);
+
+      await expect(
+        service.updateProfilePicture('user-a', image),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

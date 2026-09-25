@@ -1,7 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import * as bcrypt from 'bcrypt';
+import { Not, Repository, SelectQueryBuilder } from 'typeorm';
 import { Product } from '../products/entities/product.entity';
+import { MapService } from '../map/map.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { Seller } from '../sellers/entities/seller.entity';
 import { SavedProduct } from '../saved/entities/SavedProduct.entity';
 import { SavedSeller } from '../saved/entities/SavedSeller.entity';
@@ -10,6 +20,19 @@ import { BrowseProductsDto, NearbyShopsDto, SearchProductsDto } from './dto';
 
 /** Default search radius when the caller sends coordinates but no radius. */
 const DEFAULT_RADIUS_KM = 25;
+
+/** Matches the register and auth modules, so hashes stay comparable. */
+const SALT_ROUNDS = 10;
+
+/** A profile picture has no excuse to be bigger. */
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/** What FileInterceptor hands over, narrowed to the parts used here. */
+export interface UploadedImage {
+  buffer: Buffer;
+  mimetype?: string;
+  size: number;
+}
 
 /** One card on the buyer's home page. */
 export interface ProductCard {
@@ -73,7 +96,11 @@ export class BuyerService {
     private readonly users: Repository<User>,
     @InjectRepository(Seller)
     private readonly sellers: Repository<Seller>,
+    private readonly map: MapService,
+    private readonly uploads: UploadsService,
   ) {}
+
+  private readonly logger = new Logger(BuyerService.name);
 
   /**
    * Shops around the buyer, nearest first.
@@ -198,6 +225,10 @@ export class BuyerService {
         name: user.fullName ?? null,
         profilePicture: user.avatarUrl ?? null,
         email: user.email,
+        // The readable place, not the coordinates - this is a profile screen.
+        // Named locationName because `location` means a coordinate object
+        // everywhere else in this API.
+        locationName: user.locationName ?? null,
       },
     };
   }
@@ -217,9 +248,162 @@ export class BuyerService {
         role: user.role,
         status: user.status,
         emailVerified: user.emailVerified,
+        locationName: user.locationName ?? null,
         joined: user.createdAt.toISOString(),
       },
     };
+  }
+
+  /**
+   * Replaces the buyer's profile picture.
+   *
+   * The new one goes to Cloudinary before anything is written, so a failed
+   * upload leaves the old picture in place rather than clearing it.
+   */
+  async updateProfilePicture(userId: string, image?: UploadedImage) {
+    await this.account(userId);
+
+    if (!image) {
+      throw new BadRequestException('No picture was sent');
+    }
+
+    if (!image.mimetype?.startsWith('image/')) {
+      throw new BadRequestException('The file must be an image');
+    }
+
+    if (image.size > MAX_IMAGE_BYTES) {
+      throw new BadRequestException('The image must be under 5MB');
+    }
+
+    let url: string;
+
+    try {
+      const result: unknown = await this.uploads.uploadImage(image);
+      const secureUrl = (result as { secure_url?: string } | null)?.secure_url;
+
+      if (!secureUrl) {
+        throw new Error('Cloudinary returned no url');
+      }
+
+      url = secureUrl;
+    } catch (error) {
+      // Cloudinary rejects with a plain object, not an Error, so String() on
+      // it gives "[object Object]" and loses the reason entirely.
+      this.logger.error(`Cloudinary upload failed: ${describeError(error)}`);
+
+      throw new BadRequestException('The image could not be uploaded');
+    }
+
+    await this.users.update({ id: userId }, { avatarUrl: url });
+
+    return {
+      message: 'Profile picture updated',
+      data: { profilePicture: url },
+    };
+  }
+
+  /** Changes the name shown on the profile. */
+  async updateName(userId: string, name: string) {
+    await this.account(userId);
+    await this.users.update({ id: userId }, { fullName: name });
+
+    return { message: 'Name updated', data: { name } };
+  }
+
+  /**
+   * Changes the phone number on the account.
+   *
+   * Numbers are unique, so one already registered comes back as a 409. The
+   * caller's own number is allowed through - re-saving it is not a clash.
+   */
+  async updatePhone(userId: string, phone: string) {
+    await this.account(userId);
+
+    const taken = await this.users.findOne({
+      where: { phone, id: Not(userId) },
+    });
+
+    if (taken) {
+      throw new ConflictException(
+        'An account with that phone number already exists',
+      );
+    }
+
+    await this.users.update({ id: userId }, { phone });
+
+    return { message: 'Phone number updated', data: { phone } };
+  }
+
+  /**
+   * Changes the password.
+   *
+   * The current one has to be right. A token alone is not enough: tokens here
+   * never expire and nothing revokes them, so a stolen one would otherwise
+   * mean a permanent takeover rather than a temporary session.
+   *
+   * Note this does NOT sign other sessions out - nothing can, while tokens
+   * carry no expiry and there is no revocation list.
+   */
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
+    const user = await this.account(userId);
+
+    if (!(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      throw new UnauthorizedException('Your current password is incorrect');
+    }
+
+    await this.users.update(
+      { id: userId },
+      { passwordHash: await bcrypt.hash(newPassword, SALT_ROUNDS) },
+    );
+
+    return { message: 'Password changed', data: { changed: true } };
+  }
+
+  /**
+   * Sets where the buyer is, and resolves it to a readable place.
+   *
+   * Sellers move their shop at /api/seller/me/update/location; this is the
+   * buyer equivalent, and the only way an account registered before the
+   * columns existed can get a location at all.
+   */
+  async updateLocation(userId: string, latitude: number, longitude: number) {
+    await this.account(userId);
+
+    const locationName = await this.placeName(latitude, longitude);
+
+    await this.users.update(
+      { id: userId },
+      { latitude, longitude, locationName: locationName ?? undefined },
+    );
+
+    return {
+      message: 'Location updated',
+      data: { locationName },
+    };
+  }
+
+  /**
+   * Turns coordinates into a place name, or null.
+   *
+   * Never throws: the name is for display, so Mapbox being down must not
+   * stop someone saving where they are.
+   */
+  private async placeName(latitude: number, longitude: number) {
+    try {
+      return await this.map.reverseGeocode(latitude, longitude);
+    } catch (error) {
+      this.logger.error(
+        `Could not resolve ${latitude},${longitude} to a place name: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+
+      return null;
+    }
   }
 
   /**
@@ -442,4 +626,17 @@ function distanceKm(
       Math.sin(dLng / 2) ** 2;
 
   return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Whatever was thrown, as something readable in a log line. */
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
 }

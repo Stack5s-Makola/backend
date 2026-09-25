@@ -50,4 +50,22 @@ export class User {
   /** Their avatar, stored as a Cloudinary URL like the uploads module returns. */
   @Column({ nullable: true })
   avatarUrl?: string;
+
+  // Where the person is. Sellers keep their shop's position on the seller
+  // row; this is the account holder's own, which is what a buyer has.
+
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  latitude?: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  longitude?: number;
+
+  /**
+   * What those coordinates resolve to, from Mapbox.
+   *
+   * Stored alongside them, not instead: this is what the profile screen
+   * shows, while the coordinates are what any distance maths would use.
+   */
+  @Column({ nullable: true })
+  locationName?: string;
 }
