@@ -170,13 +170,27 @@ export class RegisterService {
    * does not.
    */
   async registerBuyer(
-    { email, phone, password, role, name }: RegisterBuyerDto,
+    {
+      email,
+      phone,
+      password,
+      role,
+      name,
+      latitude,
+      longitude,
+    }: RegisterBuyerDto,
     image?: UploadedImage,
   ) {
     await this.assertAccountAvailable({ email, phone });
 
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
     const avatarUrl = await this.upload(image);
+
+    // Only when both arrived: one coordinate alone is not a position.
+    const locationName =
+      latitude !== undefined && longitude !== undefined
+        ? await this.placeName(latitude, longitude)
+        : null;
 
     let userId: string;
 
@@ -188,6 +202,9 @@ export class RegisterService {
         role,
         avatarUrl,
         fullName: name,
+        latitude,
+        longitude,
+        locationName: locationName ?? undefined,
       });
 
       userId = (identifiers[0] as { id: string }).id;

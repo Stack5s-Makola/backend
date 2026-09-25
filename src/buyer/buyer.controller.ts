@@ -1,16 +1,32 @@
 import {
+  Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
+  Post,
   Param,
   ParseUUIDPipe,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import type { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { BuyerService } from './buyer.service';
-import { BrowseProductsDto, NearbyShopsDto, SearchProductsDto } from './dto';
+import type { UploadedImage } from './buyer.service';
+import {
+  BrowseProductsDto,
+  ChangePasswordDto,
+  NearbyShopsDto,
+  SearchProductsDto,
+  UpdateBuyerLocationDto,
+  UpdateBuyerPhoneDto,
+  UpdateNameDto,
+} from './dto';
 
 /** The mobile app's shopping screens. Every route needs a signed-in account. */
 @Controller('buyer')
@@ -80,6 +96,66 @@ export class BuyerController {
   @Get('my-profile/personal-details')
   personalDetails(@CurrentUser() user: JwtPayload) {
     return this.buyer.personalDetails(user.sub);
+  }
+
+  /**
+   * POST /api/buyer/my-profile/update/profile-picture - replace the picture.
+   *
+   * Multipart with an `image` field.
+   */
+  @Post('my-profile/update/profile-picture')
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('image'))
+  updateProfilePicture(
+    @CurrentUser() user: JwtPayload,
+    @UploadedFile() image?: UploadedImage,
+  ) {
+    return this.buyer.updateProfilePicture(user.sub, image);
+  }
+
+  /** POST /api/buyer/my-profile/update/name - change the display name. */
+  @Post('my-profile/update/name')
+  @HttpCode(HttpStatus.OK)
+  updateName(@CurrentUser() user: JwtPayload, @Body() body: UpdateNameDto) {
+    return this.buyer.updateName(user.sub, body.name);
+  }
+
+  /** POST /api/buyer/my-profile/update/phone - change the phone number. */
+  @Post('my-profile/update/phone')
+  @HttpCode(HttpStatus.OK)
+  updatePhone(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: UpdateBuyerPhoneDto,
+  ) {
+    return this.buyer.updatePhone(user.sub, body.phone);
+  }
+
+  /**
+   * POST /api/buyer/my-profile/update/password - change the password.
+   *
+   * Needs the current password as well as the new one.
+   */
+  @Post('my-profile/update/password')
+  @HttpCode(HttpStatus.OK)
+  changePassword(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: ChangePasswordDto,
+  ) {
+    return this.buyer.changePassword(
+      user.sub,
+      body.currentPassword,
+      body.newPassword,
+    );
+  }
+
+  /** POST /api/buyer/my-profile/update/location - set where the buyer is. */
+  @Post('my-profile/update/location')
+  @HttpCode(HttpStatus.OK)
+  updateLocation(
+    @CurrentUser() user: JwtPayload,
+    @Body() body: UpdateBuyerLocationDto,
+  ) {
+    return this.buyer.updateLocation(user.sub, body.latitude, body.longitude);
   }
 
   /**

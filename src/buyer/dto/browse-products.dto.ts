@@ -87,3 +87,14 @@ export class SearchProductsDto extends BrowseProductsDto {
   @IsNotEmpty({ message: 'q is required' })
   q!: string;
 }
+
+/** Body of POST /api/buyer/my-profile/update/location. */
+export class UpdateBuyerLocationDto {
+  @Type(() => Number)
+  @IsLatitude({ message: 'latitude must be between -90 and 90' })
+  latitude!: number;
+
+  @Type(() => Number)
+  @IsLongitude({ message: 'longitude must be between -180 and 180' })
+  longitude!: number;
+}
