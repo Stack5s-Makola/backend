@@ -8,7 +8,6 @@ import { QueryFailedError } from 'typeorm';
 import { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { MapService } from '../map/map.service';
 import { OtpService } from '../otp/otp.service';
-import { MapService } from '../map/map.service';
 import { UploadsService } from '../uploads/uploads.service';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';

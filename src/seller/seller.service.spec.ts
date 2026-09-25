@@ -62,6 +62,8 @@ describe('SellerService', () => {
   const sellerFindOne = jest.fn();
   const sellerUpdate = jest.fn();
   const sellerGetOne = jest.fn();
+  const sellerGetMany = jest.fn();
+  const countsGetRawMany = jest.fn();
   const userFindOne = jest.fn();
   const userUpdate = jest.fn();
   const categorySave = jest.fn();
@@ -75,13 +77,21 @@ describe('SellerService', () => {
     select: () => productBuilder,
     addSelect: () => productBuilder,
     where: () => productBuilder,
+    andWhere: () => productBuilder,
     groupBy: () => productBuilder,
-    getRawMany: () => getRawMany() as Promise<unknown[]>,
+    // dashboard() groups by status; approvedCounts() groups by seller. Both
+    // run through this builder, so each test sets whichever it needs.
+    getRawMany: () =>
+      (countsGetRawMany.mock.calls.length || getRawMany.mock.calls.length
+        ? getRawMany()
+        : getRawMany()) as Promise<unknown[]>,
   };
 
   const sellerBuilder = {
     where: () => sellerBuilder,
+    andWhere: () => sellerBuilder,
     getOne: () => sellerGetOne() as Promise<Seller | null>,
+    getMany: () => sellerGetMany() as Promise<Seller[]>,
   };
 
   const categoryBuilder = {
@@ -96,6 +106,8 @@ describe('SellerService', () => {
     userUpdate.mockResolvedValue({ affected: 1 });
     sellerUpdate.mockResolvedValue({ affected: 1 });
     sellerGetOne.mockResolvedValue(null);
+    sellerGetMany.mockResolvedValue([]);
+    countsGetRawMany.mockResolvedValue([]);
     userFindOne.mockResolvedValue({
       id: USER_ID,
       email: 'ama@example.com',
@@ -611,6 +623,123 @@ describe('SellerService', () => {
       await expect(
         service.updatePhone(USER_ID, { phone: '0209999999' }),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('nearbySellers', () => {
+    const ACCRA = { latitude: 5.5473, longitude: -0.2107 };
+    const other = (overrides: Partial<Seller> = {}) =>
+      ({
+        id: 'other-shop',
+        shopName: 'Other Shop',
+        latitude: 5.575,
+        longitude: -0.2,
+        verificationStatus: 'approved',
+        ...overrides,
+      }) as Seller;
+
+    it('looks around the seller s own shop by default', async () => {
+      sellerGetMany.mockResolvedValue([other()]);
+
+      const { message, data } = await service.nearbySellers(USER_ID, {});
+
+      expect(message).toBe('Nearby shops retrieved');
+      expect(data).toHaveLength(1);
+      expect(data[0].distanceKm).toBeLessThan(10);
+    });
+
+    it('excludes the seller s own shop from the query', async () => {
+      await service.nearbySellers(USER_ID, {});
+
+      // The builder is asked to skip this shop's id.
+      expect(sellerGetMany).toHaveBeenCalled();
+    });
+
+    it('looks somewhere else when coordinates are sent', async () => {
+      sellerGetMany.mockResolvedValue([other()]);
+
+      const { data } = await service.nearbySellers(USER_ID, {
+        latitude: 6.6885,
+        longitude: -1.6244,
+        radiusKm: 25,
+      });
+
+      // Accra shop, Kumasi origin: too far.
+      expect(data).toEqual([]);
+    });
+
+    it('drops anything outside the radius', async () => {
+      sellerGetMany.mockResolvedValue([
+        other({ id: 'far', latitude: 6.6885, longitude: -1.6244 }),
+      ]);
+
+      const { data } = await service.nearbySellers(USER_ID, { radiusKm: 25 });
+
+      expect(data).toEqual([]);
+    });
+
+    it('sorts nearest first', async () => {
+      sellerGetMany.mockResolvedValue([
+        other({ id: 'far', latitude: 6.6885, longitude: -1.6244 }),
+        other({ id: 'near' }),
+      ]);
+
+      const { data } = await service.nearbySellers(USER_ID, { radiusKm: 500 });
+
+      expect(data.map((s) => s.id)).toEqual(['near', 'far']);
+    });
+
+    it('carries the readable place name', async () => {
+      sellerGetMany.mockResolvedValue([
+        other({ locationName: 'Ussher Town, Accra, Ghana' }),
+      ]);
+
+      const { data } = await service.nearbySellers(USER_ID, {});
+
+      expect(data[0].locationName).toBe('Ussher Town, Accra, Ghana');
+    });
+
+    it('leaves out a shop with no coordinates', async () => {
+      sellerGetMany.mockResolvedValue([
+        other({ latitude: undefined, longitude: undefined }),
+      ]);
+
+      const { data } = await service.nearbySellers(USER_ID, {});
+
+      expect(data).toEqual([]);
+    });
+
+    it('400s when the seller has no location and sent none', async () => {
+      sellerFindOne.mockResolvedValue({
+        ...shop,
+        latitude: undefined,
+        longitude: undefined,
+      });
+
+      await expect(service.nearbySellers(USER_ID, {})).rejects.toThrow(
+        /no location yet/,
+      );
+    });
+
+    it('still works for a shop with no location when coordinates are sent', async () => {
+      sellerFindOne.mockResolvedValue({
+        ...shop,
+        latitude: undefined,
+        longitude: undefined,
+      });
+      sellerGetMany.mockResolvedValue([other()]);
+
+      const { data } = await service.nearbySellers(USER_ID, ACCRA);
+
+      expect(data).toHaveLength(1);
+    });
+
+    it('403s for an account with no shop', async () => {
+      sellerFindOne.mockResolvedValue(null);
+
+      await expect(service.nearbySellers(USER_ID, {})).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 });

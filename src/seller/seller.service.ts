@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Category } from '../categories/entities/Categories.entity';
+import { coordinates as pointOf, distanceKm, roundKm } from '../common/geo';
 import { Product } from '../products/entities/product.entity';
 import { Seller } from '../sellers/entities/seller.entity';
 import { MapService } from '../map/map.service';
@@ -15,6 +16,7 @@ import { UploadsService } from '../uploads/uploads.service';
 import { User } from '../users/entities/user.entity';
 import {
   AddProductDto,
+  NearbySellersDto,
   ShopProductsDto,
   UpdateLocationDto,
   UpdatePhoneDto,
@@ -24,6 +26,9 @@ import {
 /** How many listings the dashboard shows. */
 const RECENT_LISTINGS = 5;
 
+/** Default search radius when no radius is given. */
+const DEFAULT_RADIUS_KM = 25;
+
 /** A profile picture has no excuse to be bigger. */
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -32,6 +37,19 @@ export interface UploadedImage {
   buffer: Buffer;
   mimetype?: string;
   size: number;
+}
+
+/** Another shop near this one. */
+export interface NearbySeller {
+  id: string;
+  shopName: string;
+  logo: string | null;
+  location: { latitude: number; longitude: number } | null;
+  locationName: string | null;
+  verificationStatus: string;
+  distanceKm: number;
+  /** Approved listings only, so an empty shop can be told apart. */
+  productCount: number;
 }
 
 /** One of the seller's own listings. */
@@ -112,6 +130,87 @@ export class SellerService {
         recentListings: recent.map((row) => this.toRow(row)),
       },
     };
+  }
+
+  /**
+   * Other shops around this one.
+   *
+   * The origin is the seller's own shop unless coordinates are sent, so the
+   * usual call needs no parameters at all. Their own shop is left out - a
+   * seller looking for neighbours does not mean themselves.
+   *
+   * A shop with no coordinates cannot be placed, so it never appears.
+   */
+  async nearbySellers(
+    userId: string,
+    { latitude, longitude, radiusKm }: NearbySellersDto,
+  ) {
+    const shop = await this.shopOf(userId);
+    const origin =
+      latitude !== undefined && longitude !== undefined
+        ? { latitude, longitude }
+        : pointOf(shop);
+
+    if (!origin) {
+      throw new BadRequestException(
+        'Your shop has no location yet. Set one, or send latitude and longitude',
+      );
+    }
+
+    const radius = radiusKm ?? DEFAULT_RADIUS_KM;
+
+    const shops = await this.sellers
+      .createQueryBuilder('seller')
+      .where('seller.id != :id', { id: shop.id })
+      .andWhere('seller.latitude IS NOT NULL')
+      .andWhere('seller.longitude IS NOT NULL')
+      .getMany();
+
+    const counts = await this.approvedCounts(shops.map((row) => row.id));
+
+    const nearby = shops
+      .map((row) => ({ row, at: pointOf(row) }))
+      .filter(
+        (
+          entry,
+        ): entry is {
+          row: Seller;
+          at: { latitude: number; longitude: number };
+        } => entry.at !== null,
+      )
+      .map(({ row, at }) => ({ row, at, distance: distanceKm(origin, at) }))
+      .filter((entry) => entry.distance <= radius)
+      .sort((a, b) => a.distance - b.distance)
+      .map(({ row, at, distance }): NearbySeller => ({
+        id: row.id,
+        shopName: row.shopName,
+        logo: row.logoUrl ?? null,
+        location: at,
+        locationName: row.locationName ?? null,
+        verificationStatus: row.verificationStatus,
+        distanceKm: roundKm(distance),
+        productCount: counts.get(row.id) ?? 0,
+      }));
+
+    return { message: 'Nearby shops retrieved', data: nearby };
+  }
+
+  /** How many approved listings each of these shops has. */
+  private async approvedCounts(shopIds: string[]) {
+    if (!shopIds.length) {
+      return new Map<string, number>();
+    }
+
+    const rows = await this.products
+      .createQueryBuilder('product')
+      .select('product.sellerId', 'sellerId')
+      .addSelect('COUNT(*)', 'count')
+      .where('product.approvalStatus = :status', { status: 'approved' })
+      .andWhere('product.sellerId IN (:...shopIds)', { shopIds })
+      .groupBy('product.sellerId')
+      .getRawMany<{ sellerId: string; count: string }>();
+
+    return new Map(rows.map((row) => [row.sellerId, Number(row.count)]));
   }
 
   /** Everything the seller has listed, newest first, optionally by status. */

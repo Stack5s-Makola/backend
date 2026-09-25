@@ -45,6 +45,33 @@ export class BrowseProductsDto {
   category?: string;
 }
 
+/**
+ * Query for GET /api/buyer/shops/nearby.
+ *
+ * Coordinates are required here - the whole point is proximity, and without
+ * them there is nothing to be near.
+ */
+export class NearbyShopsDto {
+  @Type(() => Number)
+  @IsLatitude({
+    message: 'latitude is required and must be between -90 and 90',
+  })
+  latitude!: number;
+
+  @Type(() => Number)
+  @IsLongitude({
+    message: 'longitude is required and must be between -180 and 180',
+  })
+  longitude!: number;
+
+  /** Kilometres. Defaults to 25, capped at 500. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsPositive({ message: 'radiusKm must be greater than 0' })
+  @Max(500, { message: 'radiusKm must be 500 or less' })
+  radiusKm?: number;
+}
+
 /** Query for GET /api/buyer/products/search. */
 export class SearchProductsDto extends BrowseProductsDto {
   /**
