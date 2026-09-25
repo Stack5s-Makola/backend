@@ -135,6 +135,7 @@ GET /api/admin/sellers
       "email": "seller9@example.com",
       "profilePicture": null,
       "businessName": "The Test Shop",
+      "isEmailVerified": false,
       "location": { "latitude": 5.55, "longitude": -0.2 },
       "status": "pending"
     }
@@ -229,6 +230,62 @@ GET /api/admin/listings
 | `image` | string \| null | **always null today** - see section 8 |
 
 Newest first, every status included.
+
+---
+
+## 7a. One listing in full
+
+```
+GET /api/admin/listings/:id
+```
+
+Everything the listing page needs, including the shop and the person behind
+it - so it needs no second call for the seller.
+
+```json
+{
+  "success": true,
+  "message": "Listing retrieved",
+  "data": {
+    "id": "9bff8538-…",
+    "product": "Kente cloth",
+    "seller": "Makola Fabrics",
+    "price": 99.5,
+    "quantity": 7,
+    "category": "Fabrics",
+    "subcategory": null,
+    "tags": ["one", "two"],
+    "image": "https://res.cloudinary.com/…/kente.jpg",
+    "status": "pending",
+    "moderationNote": null,
+    "moderatedBy": null,
+    "moderatedAt": null,
+    "location": { "latitude": 5.575, "longitude": -0.2 },
+    "date": "2026-09-25T01:37:33.577Z",
+    "updatedAt": "2026-09-25T01:37:33.577Z",
+    "shop": {
+      "id": "56065822-…",
+      "shopName": "Makola Fabrics",
+      "logo": null,
+      "location": { "latitude": 5.575, "longitude": -0.2 },
+      "verificationStatus": "pending",
+      "ownerName": "Ama Mensah",
+      "ownerEmail": "ama@example.com",
+      "ownerPhone": "0241234567",
+      "isEmailVerified": false
+    }
+  }
+}
+```
+
+| Situation | Status | `message` |
+| --- | --- | --- |
+| Found | `200` | `Listing retrieved` |
+| No listing with that id | `404` | `No listing found for that id` |
+| `id` is not a uuid | `400` | `Validation failed (uuid is expected)` |
+| Not an admin | `403` | `This action requires one of the following roles: ADMIN` |
+
+`moderatedBy` is `null` for anything the super admin did - see 7b.
 
 ---
 

@@ -47,6 +47,7 @@ describe('BuyersService.list', () => {
           phone: '0241234567',
           profilePicture: null,
           joined: '2026-03-04T09:30:00.000Z',
+          isEmailVerified: false,
           status: 'active',
         },
       ],
@@ -78,8 +79,11 @@ describe('BuyersService.list', () => {
 
     expect(select).not.toHaveProperty('passwordHash');
     expect(Object.keys(select).sort()).toEqual([
+      'avatarUrl',
       'createdAt',
       'email',
+      'emailVerified',
+      'fullName',
       'id',
       'phone',
       'status',

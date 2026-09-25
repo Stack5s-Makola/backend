@@ -70,7 +70,7 @@ export class RegisterService {
    * is sent after it commits - see the note on that call below.
    */
   async setSellerProfile(dto: SetSellerProfileDto, image?: UploadedImage) {
-    const { email, phone, password, shopName, role } = dto;
+    const { email, phone, password, name, shopName, role } = dto;
     const location = coordinatesFrom(dto);
 
     // Checked up front so the client gets a clear message rather than a
@@ -95,6 +95,7 @@ export class RegisterService {
           passwordHash,
           role,
           avatarUrl,
+          fullName: name,
         });
 
         const id = (identifiers[0] as { id: string }).id;
@@ -139,7 +140,7 @@ export class RegisterService {
    * does not.
    */
   async registerBuyer(
-    { email, phone, password, role }: RegisterBuyerDto,
+    { email, phone, password, role, name }: RegisterBuyerDto,
     image?: UploadedImage,
   ) {
     await this.assertAccountAvailable({ email, phone });
@@ -150,9 +151,14 @@ export class RegisterService {
     let userId: string;
 
     try {
-      const { identifiers } = await this.db
-        .getRepository(User)
-        .insert({ email, phone, passwordHash, role, avatarUrl });
+      const { identifiers } = await this.db.getRepository(User).insert({
+        email,
+        phone,
+        passwordHash,
+        role,
+        avatarUrl,
+        fullName: name,
+      });
 
       userId = (identifiers[0] as { id: string }).id;
     } catch (error) {

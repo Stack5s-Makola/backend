@@ -75,6 +75,14 @@ export class AdminController {
     return this.listings.list();
   }
 
+  /** GET /api/admin/listings/:id - one listing in full, with its shop. */
+  @Get('listings/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN')
+  listingDetail(@Param('id', ParseUUIDPipe) id: string) {
+    return this.listings.detail(id);
+  }
+
   /**
    * PATCH /api/admin/listings/:id/approve - let buyers see a listing.
    *
