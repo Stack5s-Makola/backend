@@ -52,6 +52,7 @@ describe('BuyerService', () => {
   const userFindOne = jest.fn();
   const sellerGetMany = jest.fn();
   const reverseGeocode = jest.fn();
+  const userFind = jest.fn();
   const uploadImage = jest.fn();
   const userUpdate = jest.fn();
   const countsGetRawMany = jest.fn();
@@ -110,6 +111,7 @@ describe('BuyerService', () => {
     sellerGetMany.mockResolvedValue([]);
     reverseGeocode.mockResolvedValue('Ussher Town, Accra, Ghana');
     uploadImage.mockResolvedValue({ secure_url: 'https://cdn/pic.png' });
+    userFind.mockResolvedValue([]);
     userUpdate.mockResolvedValue({ affected: 1 });
     countsGetRawMany.mockResolvedValue([]);
     getMany.mockResolvedValue([]);
@@ -152,7 +154,11 @@ describe('BuyerService', () => {
         },
         {
           provide: getRepositoryToken(User),
-          useValue: { findOne: userFindOne, update: userUpdate },
+          useValue: {
+            findOne: userFindOne,
+            update: userUpdate,
+            find: userFind,
+          },
         },
         {
           provide: getRepositoryToken(Seller),
@@ -990,6 +996,68 @@ describe('BuyerService', () => {
       await expect(
         service.updateProfilePicture('user-a', image),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('the picture on a nearby shop', () => {
+    const OWNER = '22222222-2222-4222-8222-222222222222';
+    const withOwner = (overrides: Partial<Seller> = {}) => ({
+      ...shop(),
+      id: 'near',
+      userId: OWNER,
+      ...overrides,
+    });
+
+    it('is the owner s profile picture', async () => {
+      sellerGetMany.mockResolvedValue([withOwner()]);
+      userFind.mockResolvedValue([
+        { id: OWNER, avatarUrl: 'https://cdn/owner.png' },
+      ]);
+
+      const { data } = await service.nearbyShops(ACCRA);
+
+      expect(data[0].logo).toBe('https://cdn/owner.png');
+    });
+
+    it('prefers the owner s picture over the shop logo', async () => {
+      sellerGetMany.mockResolvedValue([
+        withOwner({ logoUrl: 'https://cdn/shop.png' }),
+      ]);
+      userFind.mockResolvedValue([
+        { id: OWNER, avatarUrl: 'https://cdn/owner.png' },
+      ]);
+
+      const { data } = await service.nearbyShops(ACCRA);
+
+      expect(data[0].logo).toBe('https://cdn/owner.png');
+    });
+
+    it('falls back to the shop logo when the owner has no picture', async () => {
+      sellerGetMany.mockResolvedValue([
+        withOwner({ logoUrl: 'https://cdn/shop.png' }),
+      ]);
+      userFind.mockResolvedValue([{ id: OWNER, avatarUrl: undefined }]);
+
+      const { data } = await service.nearbyShops(ACCRA);
+
+      expect(data[0].logo).toBe('https://cdn/shop.png');
+    });
+
+    it('is null when neither exists', async () => {
+      sellerGetMany.mockResolvedValue([withOwner()]);
+
+      const { data } = await service.nearbyShops(ACCRA);
+
+      expect(data[0].logo).toBeNull();
+    });
+
+    it('skips a shop whose userId is not a uuid, without failing', async () => {
+      sellerGetMany.mockResolvedValue([withOwner({ userId: 'not-a-uuid' })]);
+
+      const { data } = await service.nearbyShops(ACCRA);
+
+      expect(userFind).not.toHaveBeenCalled();
+      expect(data[0].logo).toBeNull();
     });
   });
 });
