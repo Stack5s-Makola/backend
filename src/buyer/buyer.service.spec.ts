@@ -43,6 +43,8 @@ function listing(overrides: Partial<Product> = {}): Product {
 describe('BuyerService', () => {
   const productFindOne = jest.fn();
   const userFindOne = jest.fn();
+  const sellerGetMany = jest.fn();
+  const countsGetRawMany = jest.fn();
   const savedProductFind = jest.fn();
   const savedShopFind = jest.fn();
   const getMany = jest.fn();
@@ -78,8 +80,25 @@ describe('BuyerService', () => {
     getMany: () => getMany() as Promise<Product[]>,
   };
 
+  const countsBuilder = {
+    select: () => countsBuilder,
+    addSelect: () => countsBuilder,
+    where: () => countsBuilder,
+    andWhere: () => countsBuilder,
+    groupBy: () => countsBuilder,
+    getRawMany: () => countsGetRawMany() as Promise<unknown[]>,
+  };
+
+  const sellerNearbyBuilder = {
+    where: () => sellerNearbyBuilder,
+    andWhere: () => sellerNearbyBuilder,
+    getMany: () => sellerGetMany() as Promise<Seller[]>,
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
+    sellerGetMany.mockResolvedValue([]);
+    countsGetRawMany.mockResolvedValue([]);
     getMany.mockResolvedValue([]);
     savedProductFind.mockResolvedValue([]);
     savedShopFind.mockResolvedValue([]);
@@ -101,7 +120,12 @@ describe('BuyerService', () => {
         {
           provide: getRepositoryToken(Product),
           useValue: {
-            createQueryBuilder: () => builder,
+            // browse/search use `builder`; the nearby count query needs its
+            // own, so hand back whichever the call is for.
+            createQueryBuilder: (alias?: string) =>
+              alias === 'product' && countsGetRawMany.mock.calls.length >= 0
+                ? { ...builder, ...countsBuilder }
+                : builder,
             findOne: productFindOne,
           },
         },
@@ -116,6 +140,10 @@ describe('BuyerService', () => {
         {
           provide: getRepositoryToken(User),
           useValue: { findOne: userFindOne },
+        },
+        {
+          provide: getRepositoryToken(Seller),
+          useValue: { createQueryBuilder: () => sellerNearbyBuilder },
         },
       ],
     }).compile();
@@ -576,6 +604,88 @@ describe('BuyerService', () => {
       await expect(service.personalDetails('user-a')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('nearbyShops', () => {
+    const near = { ...shop(), id: 'near' };
+    const far = { ...shop({ ...FAR }), id: 'far' };
+
+    it('returns shops sorted nearest first, with distance', async () => {
+      sellerGetMany.mockResolvedValue([far, near]);
+
+      const { message, data } = await service.nearbyShops({
+        ...ACCRA,
+        radiusKm: 500,
+      });
+
+      expect(message).toBe('Shops retrieved');
+      expect(data.map((s) => s.id)).toEqual(['near', 'far']);
+      expect(data[0].distanceKm).toBeGreaterThan(2);
+      expect(data[0].distanceKm).toBeLessThan(4);
+    });
+
+    it('drops anything outside the radius', async () => {
+      sellerGetMany.mockResolvedValue([near, far]);
+
+      const { data } = await service.nearbyShops({ ...ACCRA, radiusKm: 25 });
+
+      expect(data.map((s) => s.id)).toEqual(['near']);
+    });
+
+    it('defaults the radius to 25km', async () => {
+      sellerGetMany.mockResolvedValue([near, far]);
+
+      const { data } = await service.nearbyShops(ACCRA);
+
+      expect(data.map((s) => s.id)).toEqual(['near']);
+    });
+
+    it('leaves out a shop with no coordinates entirely', async () => {
+      sellerGetMany.mockResolvedValue([
+        {
+          ...shop({ latitude: undefined, longitude: undefined }),
+          id: 'no-loc',
+        },
+      ]);
+
+      const { data } = await service.nearbyShops(ACCRA);
+
+      expect(data).toEqual([]);
+    });
+
+    it('carries the readable place name', async () => {
+      sellerGetMany.mockResolvedValue([
+        { ...near, locationName: 'Ussher Town, Accra, Ghana' } as Seller,
+      ]);
+
+      const { data } = await service.nearbyShops(ACCRA);
+
+      expect(data[0].locationName).toBe('Ussher Town, Accra, Ghana');
+    });
+
+    it('counts only approved listings', async () => {
+      sellerGetMany.mockResolvedValue([near]);
+      countsGetRawMany.mockResolvedValue([{ sellerId: 'near', count: '7' }]);
+
+      const { data } = await service.nearbyShops(ACCRA);
+
+      expect(data[0].productCount).toBe(7);
+    });
+
+    it('reports zero for a shop with nothing approved', async () => {
+      sellerGetMany.mockResolvedValue([near]);
+
+      const { data } = await service.nearbyShops(ACCRA);
+
+      expect(data[0].productCount).toBe(0);
+    });
+
+    it('is empty when there are no shops at all', async () => {
+      await expect(service.nearbyShops(ACCRA)).resolves.toEqual({
+        message: 'Shops retrieved',
+        data: [],
+      });
     });
   });
 });

@@ -10,7 +10,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import type { JwtPayload } from '../common/guards/jwt-auth.guard';
 import { BuyerService } from './buyer.service';
-import { BrowseProductsDto, SearchProductsDto } from './dto';
+import { BrowseProductsDto, NearbyShopsDto, SearchProductsDto } from './dto';
 
 /** The mobile app's shopping screens. Every route needs a signed-in account. */
 @Controller('buyer')
@@ -41,6 +41,16 @@ export class BuyerController {
   @Get('products')
   browse(@Query() query: BrowseProductsDto) {
     return this.buyer.browse(query);
+  }
+
+  /**
+   * GET /api/buyer/shops/nearby?latitude=&longitude=&radiusKm=
+   *
+   * Shops around the buyer, nearest first. Coordinates are required.
+   */
+  @Get('shops/nearby')
+  nearbyShops(@Query() query: NearbyShopsDto) {
+    return this.buyer.nearbyShops(query);
   }
 
   /**

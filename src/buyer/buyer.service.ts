@@ -2,10 +2,11 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Product } from '../products/entities/product.entity';
+import { Seller } from '../sellers/entities/seller.entity';
 import { SavedProduct } from '../saved/entities/SavedProduct.entity';
 import { SavedSeller } from '../saved/entities/SavedSeller.entity';
 import { User } from '../users/entities/user.entity';
-import { BrowseProductsDto, SearchProductsDto } from './dto';
+import { BrowseProductsDto, NearbyShopsDto, SearchProductsDto } from './dto';
 
 /** Default search radius when the caller sends coordinates but no radius. */
 const DEFAULT_RADIUS_KM = 25;
@@ -44,6 +45,13 @@ export interface ShopCard {
   verificationStatus: string;
 }
 
+/** A shop near the buyer, with how far away it is. */
+export interface NearbyShop extends ShopCard {
+  distanceKm: number;
+  /** How many approved listings it has, so an empty shop can be hidden. */
+  productCount: number;
+}
+
 /** Everything the product page shows. */
 export interface ProductDetail extends ProductCard {
   subcategory: string | null;
@@ -63,7 +71,79 @@ export class BuyerService {
     private readonly savedShops: Repository<SavedSeller>,
     @InjectRepository(User)
     private readonly users: Repository<User>,
+    @InjectRepository(Seller)
+    private readonly sellers: Repository<Seller>,
   ) {}
+
+  /**
+   * Shops around the buyer, nearest first.
+   *
+   * A shop with no coordinates cannot be placed, so it is left out entirely -
+   * unlike product browsing, where a shop without them still appears when no
+   * location is given. Here there is no sensible way to include it.
+   *
+   * `productCount` counts approved listings only, so the app can hide a shop
+   * a shopper cannot buy anything from.
+   */
+  async nearbyShops({ latitude, longitude, radiusKm }: NearbyShopsDto) {
+    const radius = radiusKm ?? DEFAULT_RADIUS_KM;
+
+    const shops = await this.sellers
+      .createQueryBuilder('seller')
+      .where('seller.latitude IS NOT NULL')
+      .andWhere('seller.longitude IS NOT NULL')
+      .getMany();
+
+    const counts = await this.approvedCounts(shops.map((shop) => shop.id));
+
+    const nearby = shops
+      .map((shop) => ({ shop, at: coordinates(shop) }))
+      .filter(
+        (
+          row,
+        ): row is {
+          shop: Seller;
+          at: { latitude: number; longitude: number };
+        } => row.at !== null,
+      )
+      .map(({ shop, at }) => ({
+        shop,
+        at,
+        distance: distanceKm(latitude, longitude, at),
+      }))
+      .filter((row) => row.distance <= radius)
+      .sort((a, b) => a.distance - b.distance)
+      .map(({ shop, at, distance }): NearbyShop => ({
+        id: shop.id,
+        shopName: shop.shopName,
+        logo: shop.logoUrl ?? null,
+        location: at,
+        locationName: shop.locationName ?? null,
+        verificationStatus: shop.verificationStatus,
+        distanceKm: Math.round(distance * 10) / 10,
+        productCount: counts.get(shop.id) ?? 0,
+      }));
+
+    return { message: 'Shops retrieved', data: nearby };
+  }
+
+  /** How many approved listings each of these shops has. */
+  private async approvedCounts(shopIds: string[]) {
+    if (!shopIds.length) {
+      return new Map<string, number>();
+    }
+
+    const rows = await this.products
+      .createQueryBuilder('product')
+      .select('product.sellerId', 'sellerId')
+      .addSelect('COUNT(*)', 'count')
+      .where('product.approvalStatus = :status', { status: 'approved' })
+      .andWhere('product.sellerId IN (:...shopIds)', { shopIds })
+      .groupBy('product.sellerId')
+      .getRawMany<{ sellerId: string; count: string }>();
+
+    return new Map(rows.map((row) => [row.sellerId, Number(row.count)]));
+  }
 
   /**
    * One listing in full, for the product page.

@@ -42,6 +42,7 @@ describe('GET /buyer/products', () => {
   const product = jest.fn();
   const profile = jest.fn();
   const personalDetails = jest.fn();
+  const nearbyShops = jest.fn();
   let app: INestApplication;
   let jwt: JwtService;
 
@@ -60,6 +61,7 @@ describe('GET /buyer/products', () => {
             product,
             profile,
             personalDetails,
+            nearbyShops,
           },
         },
       ],
@@ -97,6 +99,10 @@ describe('GET /buyer/products', () => {
     profile.mockResolvedValue({
       message: 'Profile retrieved',
       data: { name: null, profilePicture: null, email: 'kofi@example.com' },
+    });
+    nearbyShops.mockResolvedValue({
+      message: 'Shops retrieved',
+      data: [],
     });
     personalDetails.mockResolvedValue({
       message: 'Personal details retrieved',
@@ -385,5 +391,51 @@ describe('GET /buyer/products', () => {
 
   it('401 on my-profile with no token', async () => {
     expect((await get(undefined, '', '/buyer/my-profile')).status).toBe(401);
+  });
+
+  it('200 on nearby shops, passing coordinates as numbers', async () => {
+    const { status } = await get(
+      tokenFor('BUYER'),
+      '?latitude=5.55&longitude=-0.2&radiusKm=10',
+      '/buyer/shops/nearby',
+    );
+
+    expect(status).toBe(200);
+    expect(nearbyShops).toHaveBeenCalledWith({
+      latitude: 5.55,
+      longitude: -0.2,
+      radiusKm: 10,
+    });
+  });
+
+  it('400 when nearby shops gets no coordinates', async () => {
+    const { status, body } = await get(
+      tokenFor('BUYER'),
+      '',
+      '/buyer/shops/nearby',
+    );
+
+    expect(status).toBe(400);
+    expect(body.errors).toHaveProperty('latitude');
+  });
+
+  it('400 when a nearby latitude is out of range', async () => {
+    const { status } = await get(
+      tokenFor('BUYER'),
+      '?latitude=999&longitude=-0.2',
+      '/buyer/shops/nearby',
+    );
+
+    expect(status).toBe(400);
+  });
+
+  it('401 on nearby shops with no token', async () => {
+    const { status } = await get(
+      undefined,
+      '?latitude=5.55&longitude=-0.2',
+      '/buyer/shops/nearby',
+    );
+
+    expect(status).toBe(401);
   });
 });

@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import type { JwtPayload } from '../common/guards/jwt-auth.guard';
 import {
   AddProductDto,
+  NearbySellersDto,
   ShopProductsDto,
   UpdateLocationDto,
   UpdatePhoneDto,
@@ -91,6 +92,20 @@ export class SellerController {
   @Get('shop')
   shop(@CurrentUser() user: JwtPayload, @Query() query: ShopProductsDto) {
     return this.seller.shop(user.sub, query);
+  }
+
+  /**
+   * GET /api/seller/shops/nearby?radiusKm=25 - other shops around this one.
+   *
+   * Declared before /shop so it is never read as a status query. Takes
+   * optional latitude and longitude to look somewhere other than home.
+   */
+  @Get('shops/nearby')
+  nearbySellers(
+    @CurrentUser() user: JwtPayload,
+    @Query() query: NearbySellersDto,
+  ) {
+    return this.seller.nearbySellers(user.sub, query);
   }
 
   /** GET /api/seller/me - the seller's account and shop. */
