@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Category } from '../categories/entities/Categories.entity';
 import { coordinates as pointOf, distanceKm, roundKm } from '../common/geo';
 import { Product } from '../products/entities/product.entity';
@@ -25,6 +25,10 @@ import {
 
 /** How many listings the dashboard shows. */
 const RECENT_LISTINGS = 5;
+
+/** A uuid, for telling a real user reference from junk in a varchar column. */
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Default search radius when no radius is given. */
 const DEFAULT_RADIUS_KM = 25;
@@ -166,7 +170,10 @@ export class SellerService {
       .andWhere('seller.longitude IS NOT NULL')
       .getMany();
 
-    const counts = await this.approvedCounts(shops.map((row) => row.id));
+    const [counts, pictures] = await Promise.all([
+      this.approvedCounts(shops.map((row) => row.id)),
+      this.ownerPictures(shops),
+    ]);
 
     const nearby = shops
       .map((row) => ({ row, at: pointOf(row) }))
@@ -184,7 +191,9 @@ export class SellerService {
       .map(({ row, at, distance }): NearbySeller => ({
         id: row.id,
         shopName: row.shopName,
-        logo: row.logoUrl ?? null,
+        // The owner's profile picture. The shop's own logo is the fallback,
+        // for shops that set one before avatars existed.
+        logo: pictures.get(row.id) ?? row.logoUrl ?? null,
         location: at,
         locationName: row.locationName ?? null,
         verificationStatus: row.verificationStatus,
@@ -193,6 +202,41 @@ export class SellerService {
       }));
 
     return { message: 'Nearby shops retrieved', data: nearby };
+  }
+
+  /**
+   * The profile picture of each shop's owner, keyed by shop id.
+   *
+   * `sellers.userId` is a varchar while `users.id` is a uuid, so anything
+   * that is not a uuid is skipped rather than failing the whole query.
+   */
+  private async ownerPictures(shops: Seller[]) {
+    const byUser = new Map<string, string[]>();
+
+    for (const shop of shops) {
+      if (shop.userId && UUID_PATTERN.test(shop.userId)) {
+        byUser.set(shop.userId, [...(byUser.get(shop.userId) ?? []), shop.id]);
+      }
+    }
+
+    if (!byUser.size) {
+      return new Map<string, string | null>();
+    }
+
+    const owners = await this.users.find({
+      where: { id: In([...byUser.keys()]) },
+      select: { id: true, avatarUrl: true },
+    });
+
+    const pictures = new Map<string, string | null>();
+
+    for (const owner of owners) {
+      for (const shopId of byUser.get(owner.id) ?? []) {
+        pictures.set(shopId, owner.avatarUrl ?? null);
+      }
+    }
+
+    return pictures;
   }
 
   /** How many approved listings each of these shops has. */

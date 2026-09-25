@@ -65,6 +65,7 @@ describe('SellerService', () => {
   const sellerGetMany = jest.fn();
   const countsGetRawMany = jest.fn();
   const userFindOne = jest.fn();
+  const userFind = jest.fn();
   const userUpdate = jest.fn();
   const categorySave = jest.fn();
   const categoryGetOne = jest.fn();
@@ -107,6 +108,7 @@ describe('SellerService', () => {
     sellerUpdate.mockResolvedValue({ affected: 1 });
     sellerGetOne.mockResolvedValue(null);
     sellerGetMany.mockResolvedValue([]);
+    userFind.mockResolvedValue([]);
     countsGetRawMany.mockResolvedValue([]);
     userFindOne.mockResolvedValue({
       id: USER_ID,
@@ -149,7 +151,11 @@ describe('SellerService', () => {
         },
         {
           provide: getRepositoryToken(User),
-          useValue: { findOne: userFindOne, update: userUpdate },
+          useValue: {
+            findOne: userFindOne,
+            update: userUpdate,
+            find: userFind,
+          },
         },
         { provide: UploadsService, useValue: { uploadImage } },
         { provide: MapService, useValue: { reverseGeocode } },
@@ -740,6 +746,50 @@ describe('SellerService', () => {
       await expect(service.nearbySellers(USER_ID, {})).rejects.toThrow(
         ForbiddenException,
       );
+    });
+  });
+
+  describe('the picture on a nearby shop', () => {
+    const OWNER = '33333333-3333-4333-8333-333333333333';
+
+    it('is the owner s profile picture', async () => {
+      sellerGetMany.mockResolvedValue([
+        {
+          id: 'other-shop',
+          userId: OWNER,
+          shopName: 'Other Shop',
+          latitude: 5.575,
+          longitude: -0.2,
+          verificationStatus: 'approved',
+          logoUrl: 'https://cdn/shop.png',
+        } as Seller,
+      ]);
+      userFind.mockResolvedValue([
+        { id: OWNER, avatarUrl: 'https://cdn/owner.png' },
+      ]);
+
+      const { data } = await service.nearbySellers(USER_ID, {});
+
+      expect(data[0].logo).toBe('https://cdn/owner.png');
+    });
+
+    it('falls back to the shop logo', async () => {
+      sellerGetMany.mockResolvedValue([
+        {
+          id: 'other-shop',
+          userId: OWNER,
+          shopName: 'Other Shop',
+          latitude: 5.575,
+          longitude: -0.2,
+          verificationStatus: 'approved',
+          logoUrl: 'https://cdn/shop.png',
+        } as Seller,
+      ]);
+      userFind.mockResolvedValue([{ id: OWNER, avatarUrl: undefined }]);
+
+      const { data } = await service.nearbySellers(USER_ID, {});
+
+      expect(data[0].logo).toBe('https://cdn/shop.png');
     });
   });
 });

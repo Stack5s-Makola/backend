@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { Not, Repository, SelectQueryBuilder } from 'typeorm';
+import { In, Not, Repository, SelectQueryBuilder } from 'typeorm';
 import { Product } from '../products/entities/product.entity';
 import { MapService } from '../map/map.service';
 import { UploadsService } from '../uploads/uploads.service';
@@ -20,6 +20,10 @@ import { BrowseProductsDto, NearbyShopsDto, SearchProductsDto } from './dto';
 
 /** Default search radius when the caller sends coordinates but no radius. */
 const DEFAULT_RADIUS_KM = 25;
+
+/** A uuid, for telling a real user reference from junk in a varchar column. */
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Matches the register and auth modules, so hashes stay comparable. */
 const SALT_ROUNDS = 10;
@@ -121,7 +125,10 @@ export class BuyerService {
       .andWhere('seller.longitude IS NOT NULL')
       .getMany();
 
-    const counts = await this.approvedCounts(shops.map((shop) => shop.id));
+    const [counts, pictures] = await Promise.all([
+      this.approvedCounts(shops.map((shop) => shop.id)),
+      this.ownerPictures(shops),
+    ]);
 
     const nearby = shops
       .map((shop) => ({ shop, at: coordinates(shop) }))
@@ -143,7 +150,9 @@ export class BuyerService {
       .map(({ shop, at, distance }): NearbyShop => ({
         id: shop.id,
         shopName: shop.shopName,
-        logo: shop.logoUrl ?? null,
+        // The owner's profile picture. The shop's own logo is the fallback,
+        // for shops that set one before avatars existed.
+        logo: pictures.get(shop.id) ?? shop.logoUrl ?? null,
         location: at,
         locationName: shop.locationName ?? null,
         verificationStatus: shop.verificationStatus,
@@ -152,6 +161,41 @@ export class BuyerService {
       }));
 
     return { message: 'Shops retrieved', data: nearby };
+  }
+
+  /**
+   * The profile picture of each shop's owner, keyed by shop id.
+   *
+   * `sellers.userId` is a varchar while `users.id` is a uuid, so anything
+   * that is not a uuid is skipped rather than failing the whole query.
+   */
+  private async ownerPictures(shops: Seller[]) {
+    const byUser = new Map<string, string[]>();
+
+    for (const shop of shops) {
+      if (shop.userId && UUID_PATTERN.test(shop.userId)) {
+        byUser.set(shop.userId, [...(byUser.get(shop.userId) ?? []), shop.id]);
+      }
+    }
+
+    if (!byUser.size) {
+      return new Map<string, string | null>();
+    }
+
+    const owners = await this.users.find({
+      where: { id: In([...byUser.keys()]) },
+      select: { id: true, avatarUrl: true },
+    });
+
+    const pictures = new Map<string, string | null>();
+
+    for (const owner of owners) {
+      for (const shopId of byUser.get(owner.id) ?? []) {
+        pictures.set(shopId, owner.avatarUrl ?? null);
+      }
+    }
+
+    return pictures;
   }
 
   /** How many approved listings each of these shops has. */
