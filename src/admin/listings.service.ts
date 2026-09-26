@@ -2,6 +2,9 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { ListingApprovalStatus } from '../common/constants/domain';
+import { MapService } from '../map/map.service';
+import { placeNames } from '../common/place-name';
+import { shopPicture } from '../common/shop-picture';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Product } from '../products/entities/product.entity';
 import { Seller } from '../sellers/entities/seller.entity';
@@ -14,8 +17,15 @@ export interface ListingRow {
   product: string;
   /** The shop it belongs to, or null if the row points at no seller. */
   seller: string | null;
-  /** The seller's coordinates - a listing has no location of its own. */
-  location: { latitude: number; longitude: number } | null;
+  /**
+   * Where the seller is, as a place name - a listing has no location of its
+   * own. Null when the shop has no coordinates to resolve.
+   */
+  location: string | null;
+  /** The same name, under the name the mobile API uses. */
+  locationName: string | null;
+  /** The raw coordinates as well, for the dashboard's map. */
+  coordinates: { latitude: number; longitude: number } | null;
   /** When it was listed, as an ISO timestamp. */
   date: string;
   /** pending | approved | rejected | removed */
@@ -41,10 +51,15 @@ export interface ListingDetail extends ListingRow {
   shop: {
     id: string;
     shopName: string;
+    /** The owner's profile picture, falling back to the shop's own logo. */
     logo: string | null;
-    location: { latitude: number; longitude: number } | null;
-    verificationStatus: string;
+    /** Where the shop is, as a place name. */
+    location: string | null;
+    /** The same name, under the older field name. */
     locationName: string | null;
+    /** The raw coordinates as well, for the dashboard's map. */
+    coordinates: { latitude: number; longitude: number } | null;
+    verificationStatus: string;
     ownerName: string | null;
     ownerEmail: string | null;
     ownerPhone: string | null;
@@ -64,6 +79,7 @@ export class ListingsService {
     @InjectRepository(User)
     private readonly users: Repository<User>,
     private readonly notifications: NotificationsService,
+    private readonly map: MapService,
   ) {}
 
   /**
@@ -82,12 +98,19 @@ export class ListingsService {
       throw new NotFoundException('No listing found for that id');
     }
 
-    const owner = await this.ownerOf(listing.seller);
+    const [owner, names] = await Promise.all([
+      this.ownerOf(listing.seller),
+      placeNames(
+        this.map,
+        this.sellers,
+        listing.seller ? [listing.seller] : [],
+      ),
+    ]);
 
     return {
       message: 'Listing retrieved',
       data: {
-        ...this.toRow(listing),
+        ...this.toRow(listing, names),
         // numeric columns come back from pg as strings
         price: Number(listing.price),
         quantity: listing.quantity,
@@ -102,10 +125,11 @@ export class ListingsService {
           ? {
               id: listing.seller.id,
               shopName: listing.seller.shopName,
-              logo: listing.seller.logoUrl ?? null,
-              location: this.location(listing),
+              logo: shopPicture(listing.seller, owner?.avatarUrl),
+              location: names.get(listing.seller.id) ?? null,
+              locationName: names.get(listing.seller.id) ?? null,
+              coordinates: this.location(listing),
               verificationStatus: listing.seller.verificationStatus,
-              locationName: listing.seller.locationName ?? null,
               ownerName: owner?.fullName ?? null,
               ownerEmail: owner?.email ?? null,
               ownerPhone: owner?.phone ?? null,
@@ -217,19 +241,34 @@ export class ListingsService {
       order: { createdAt: 'DESC' },
     });
 
+    const names = await placeNames(
+      this.map,
+      this.sellers,
+      listings.map((listing) => listing.seller).filter(Boolean),
+    );
+
     return {
       message: 'Listings retrieved',
-      data: listings.map((listing) => this.toRow(listing)),
+      data: listings.map((listing) => this.toRow(listing, names)),
     };
   }
 
   /** The shape both the table and the detail page start from. */
-  private toRow(listing: Product): ListingRow {
+  private toRow(
+    listing: Product,
+    names: Map<string, string | null>,
+  ): ListingRow {
+    const where = listing.seller
+      ? (names.get(listing.seller.id) ?? null)
+      : null;
+
     return {
       id: listing.id,
       product: listing.name,
       seller: listing.seller?.shopName ?? null,
-      location: this.location(listing),
+      location: where,
+      locationName: where,
+      coordinates: this.location(listing),
       date: listing.createdAt.toISOString(),
       status: listing.approvalStatus,
       image: listing.imageUrl ?? null,

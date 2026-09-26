@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
+import { MapService } from '../map/map.service';
+import { placeNames } from '../common/place-name';
+import { shopPicture } from '../common/shop-picture';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
 
@@ -10,13 +13,18 @@ export interface SellerRow {
   /** The person behind the shop, from users.fullName. */
   name: string | null;
   email: string | null;
-  /** The shop's logo, falling back to the owner's avatar. */
+  /** The owner's profile picture, falling back to the shop's own logo. */
   profilePicture: string | null;
   businessName: string;
-  /** Coordinates, for maps and distance. */
-  location: { latitude: number; longitude: number } | null;
-  /** What those coordinates resolve to, from Mapbox. Null if never resolved. */
+  /** Where the shop is, as a place name - what the table column shows. */
+  location: string | null;
+  /** The same name, under the older field name. */
   locationName: string | null;
+  /**
+   * The raw coordinates as well, because the dashboard plots sellers on a
+   * map and a name cannot be plotted. Null when the shop has none.
+   */
+  coordinates: { latitude: number; longitude: number } | null;
   /**
    * Whether the owner confirmed their email address.
    *
@@ -36,12 +44,16 @@ export class SellersService {
     private readonly sellers: Repository<Seller>,
     @InjectRepository(User)
     private readonly users: Repository<User>,
+    private readonly map: MapService,
   ) {}
 
   /** Every seller, newest first. */
   async list() {
     const sellers = await this.sellers.find({ order: { createdAt: 'DESC' } });
-    const owners = await this.ownersFor(sellers);
+    const [owners, names] = await Promise.all([
+      this.ownersFor(sellers),
+      placeNames(this.map, this.sellers, sellers),
+    ]);
 
     return {
       message: 'Sellers retrieved',
@@ -52,11 +64,11 @@ export class SellersService {
           id: seller.id,
           name: owner?.fullName ?? null,
           email: owner?.email ?? null,
-          // The shop's own branding wins; the owner's face is the fallback.
-          profilePicture: seller.logoUrl ?? owner?.avatarUrl ?? null,
+          profilePicture: shopPicture(seller, owner?.avatarUrl),
           businessName: seller.shopName,
-          location: this.location(seller),
-          locationName: seller.locationName ?? null,
+          location: names.get(seller.id) ?? null,
+          locationName: names.get(seller.id) ?? null,
+          coordinates: this.location(seller),
           isEmailVerified: owner?.emailVerified ?? false,
           status: seller.verificationStatus,
         };

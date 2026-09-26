@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Product } from '../products/entities/product.entity';
+import { MapModule } from '../map/map.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
@@ -18,6 +19,7 @@ import { SellersService } from './sellers.service';
     ConfigModule,
     TypeOrmModule.forFeature([User, Product, Seller]),
     NotificationsModule,
+    MapModule,
   ],
   controllers: [AdminController],
   providers: [

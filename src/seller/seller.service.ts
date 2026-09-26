@@ -9,6 +9,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Category } from '../categories/entities/Categories.entity';
 import { coordinates as pointOf, distanceKm, roundKm } from '../common/geo';
+import { shopPicture } from '../common/shop-picture';
+import { shopOwners } from '../common/shop-owner';
+import { placeName, placeNames } from '../common/place-name';
 import { Product } from '../products/entities/product.entity';
 import { Seller } from '../sellers/entities/seller.entity';
 import { MapService } from '../map/map.service';
@@ -26,10 +29,6 @@ import {
 /** How many listings the dashboard shows. */
 const RECENT_LISTINGS = 5;
 
-/** A uuid, for telling a real user reference from junk in a varchar column. */
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /** Default search radius when no radius is given. */
 const DEFAULT_RADIUS_KM = 25;
 
@@ -43,17 +42,43 @@ export interface UploadedImage {
   size: number;
 }
 
-/** Another shop near this one. */
+/** The person behind a shop, as the map page shows them. */
+export interface ShopOwner {
+  id: string | null;
+  name: string | null;
+  profilePicture: string | null;
+  email: string | null;
+  phone: string | null;
+  isEmailVerified: boolean;
+}
+
+/**
+ * Another shop near this one, in full.
+ *
+ * The same shape the buyer's map returns, so one screen can render either.
+ */
 export interface NearbySeller {
   id: string;
   shopName: string;
+  description: string | null;
+  /** The owner's profile picture, falling back to the shop's own logo. */
   logo: string | null;
-  location: { latitude: number; longitude: number } | null;
+  /** Where the shop is, as a place name rather than coordinates. */
+  location: string | null;
+  /** The same name. Kept so callers reading either field still work. */
   locationName: string | null;
-  verificationStatus: string;
+  /** The raw coordinates too - a pin is dropped at a point. */
+  coordinates: { latitude: number; longitude: number } | null;
   distanceKm: number;
+  verificationStatus: string;
+  /** When the shop was created, as an ISO timestamp. */
+  joined: string;
+  /** The account behind the shop. Null when the row points at no user. */
+  owner: ShopOwner | null;
   /** Approved listings only, so an empty shop can be told apart. */
   productCount: number;
+  /** Those listings, so the shop's page needs no second call. */
+  products: ListingRow[];
 }
 
 /** One of the seller's own listings. */
@@ -170,11 +195,6 @@ export class SellerService {
       .andWhere('seller.longitude IS NOT NULL')
       .getMany();
 
-    const [counts, pictures] = await Promise.all([
-      this.approvedCounts(shops.map((row) => row.id)),
-      this.ownerPictures(shops),
-    ]);
-
     const nearby = shops
       .map((row) => ({ row, at: pointOf(row) }))
       .filter(
@@ -187,74 +207,83 @@ export class SellerService {
       )
       .map(({ row, at }) => ({ row, at, distance: distanceKm(origin, at) }))
       .filter((entry) => entry.distance <= radius)
-      .sort((a, b) => a.distance - b.distance)
-      .map(({ row, at, distance }): NearbySeller => ({
+      .sort((a, b) => a.distance - b.distance);
+
+    // Only the shops that survived the radius are worth loading in full.
+    const inRadius = nearby.map((entry) => entry.row);
+
+    const [owners, names, listings] = await Promise.all([
+      shopOwners(this.users, inRadius),
+      placeNames(this.map, this.sellers, inRadius),
+      this.approvedListingsFor(inRadius.map((row) => row.id)),
+    ]);
+
+    const data = nearby.map(({ row, at, distance }): NearbySeller => {
+      const where = names.get(row.id) ?? null;
+      const owner = owners.get(row.id);
+      const products = listings.get(row.id) ?? [];
+
+      return {
         id: row.id,
         shopName: row.shopName,
-        // The owner's profile picture. The shop's own logo is the fallback,
-        // for shops that set one before avatars existed.
-        logo: pictures.get(row.id) ?? row.logoUrl ?? null,
-        location: at,
-        locationName: row.locationName ?? null,
-        verificationStatus: row.verificationStatus,
+        description: row.description ?? null,
+        logo: shopPicture(row, owner?.avatarUrl),
+        location: where,
+        locationName: where,
+        coordinates: at,
         distanceKm: roundKm(distance),
-        productCount: counts.get(row.id) ?? 0,
-      }));
+        verificationStatus: row.verificationStatus,
+        joined: row.createdAt.toISOString(),
+        owner: owner
+          ? {
+              id: owner.id,
+              name: owner.fullName ?? null,
+              profilePicture: owner.avatarUrl ?? null,
+              email: owner.email,
+              phone: owner.phone ?? null,
+              isEmailVerified: owner.emailVerified ?? false,
+            }
+          : null,
+        productCount: products.length,
+        products: products.map((listing) => this.toRow(listing)),
+      };
+    });
 
-    return { message: 'Nearby shops retrieved', data: nearby };
+    return { message: 'Nearby shops retrieved', data };
   }
 
   /**
-   * The profile picture of each shop's owner, keyed by shop id.
+   * The approved listings of each of these shops, keyed by shop id.
    *
-   * `sellers.userId` is a varchar while `users.id` is a uuid, so anything
-   * that is not a uuid is skipped rather than failing the whole query.
+   * One query for the whole page rather than one per shop, grouped in memory.
+   * `productCount` is this list's length, so the number and the listings can
+   * never disagree.
    */
-  private async ownerPictures(shops: Seller[]) {
-    const byUser = new Map<string, string[]>();
+  private async approvedListingsFor(shopIds: string[]) {
+    const byShop = new Map<string, Product[]>();
 
-    for (const shop of shops) {
-      if (shop.userId && UUID_PATTERN.test(shop.userId)) {
-        byUser.set(shop.userId, [...(byUser.get(shop.userId) ?? []), shop.id]);
-      }
+    if (!shopIds.length) {
+      return byShop;
     }
 
-    if (!byUser.size) {
-      return new Map<string, string | null>();
-    }
-
-    const owners = await this.users.find({
-      where: { id: In([...byUser.keys()]) },
-      select: { id: true, avatarUrl: true },
+    const listings = await this.products.find({
+      where: { seller: { id: In(shopIds) }, approvalStatus: 'approved' },
+      relations: { seller: true, category: true },
+      order: { createdAt: 'DESC' },
     });
 
-    const pictures = new Map<string, string | null>();
-
-    for (const owner of owners) {
-      for (const shopId of byUser.get(owner.id) ?? []) {
-        pictures.set(shopId, owner.avatarUrl ?? null);
+    for (const listing of listings) {
+      if (!listing.seller) {
+        continue;
       }
+
+      byShop.set(listing.seller.id, [
+        ...(byShop.get(listing.seller.id) ?? []),
+        listing,
+      ]);
     }
 
-    return pictures;
-  }
-
-  /** How many approved listings each of these shops has. */
-  private async approvedCounts(shopIds: string[]) {
-    if (!shopIds.length) {
-      return new Map<string, number>();
-    }
-
-    const rows = await this.products
-      .createQueryBuilder('product')
-      .select('product.sellerId', 'sellerId')
-      .addSelect('COUNT(*)', 'count')
-      .where('product.approvalStatus = :status', { status: 'approved' })
-      .andWhere('product.sellerId IN (:...shopIds)', { shopIds })
-      .groupBy('product.sellerId')
-      .getRawMany<{ sellerId: string; count: string }>();
-
-    return new Map(rows.map((row) => [row.sellerId, Number(row.count)]));
+    return byShop;
   }
 
   /** Everything the seller has listed, newest first, optionally by status. */
@@ -279,7 +308,10 @@ export class SellerService {
   /** The seller's own account and shop. */
   async me(userId: string) {
     const shop = await this.shopOf(userId);
-    const user = await this.users.findOne({ where: { id: userId } });
+    const [user, names] = await Promise.all([
+      this.users.findOne({ where: { id: userId } }),
+      placeNames(this.map, this.sellers, [shop]),
+    ]);
 
     return {
       message: 'Seller retrieved',
@@ -292,9 +324,9 @@ export class SellerService {
         phone: user?.phone ?? null,
         shopName: shop.shopName,
         description: shop.description ?? null,
-        logo: shop.logoUrl ?? null,
-        location: coordinates(shop),
-        locationName: shop.locationName ?? null,
+        logo: shopPicture(shop, user?.avatarUrl),
+        location: names.get(shop.id) ?? null,
+        locationName: names.get(shop.id) ?? null,
         verificationStatus: shop.verificationStatus,
         joined: shop.createdAt.toISOString(),
       },
@@ -368,7 +400,7 @@ export class SellerService {
     { latitude, longitude }: UpdateLocationDto,
   ) {
     const shop = await this.shopOf(userId);
-    const locationName = await this.placeName(latitude, longitude);
+    const locationName = await placeName(this.map, latitude, longitude);
 
     await this.sellers.update(
       { id: shop.id },
@@ -377,28 +409,8 @@ export class SellerService {
 
     return {
       message: 'Location updated',
-      data: { location: { latitude, longitude }, locationName },
+      data: { location: locationName, locationName },
     };
-  }
-
-  /**
-   * Turns coordinates into a place name, or null.
-   *
-   * Never throws: the name is for display, the coordinates are what search
-   * works from, so Mapbox being down must not stop a shop moving.
-   */
-  private async placeName(latitude: number, longitude: number) {
-    try {
-      return await this.map.reverseGeocode(latitude, longitude);
-    } catch (error) {
-      this.logger.error(
-        `Could not resolve ${latitude},${longitude} to a place name: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-
-      return null;
-    }
   }
 
   /**
@@ -441,7 +453,11 @@ export class SellerService {
     // place name has to be resolved again or it describes where the shop
     // used to be.
     if (dto.latitude !== undefined && dto.longitude !== undefined) {
-      const locationName = await this.placeName(dto.latitude, dto.longitude);
+      const locationName = await placeName(
+        this.map,
+        dto.latitude,
+        dto.longitude,
+      );
 
       await this.sellers.update(
         { id: shop.id },
@@ -544,26 +560,6 @@ export class SellerService {
       listedAt: listing.createdAt.toISOString(),
     };
   }
-}
-
-/** A shop's coordinates, as numbers, or null when it has none. */
-function coordinates(seller: {
-  latitude?: number | null;
-  longitude?: number | null;
-}) {
-  const latitude = Number(seller.latitude);
-  const longitude = Number(seller.longitude);
-
-  if (
-    seller.latitude == null ||
-    seller.longitude == null ||
-    !Number.isFinite(latitude) ||
-    !Number.isFinite(longitude)
-  ) {
-    return null;
-  }
-
-  return { latitude, longitude };
 }
 
 /** Whatever was thrown, as something readable in a log line. */

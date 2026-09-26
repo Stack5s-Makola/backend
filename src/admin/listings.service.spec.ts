@@ -1,6 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { MapService } from '../map/map.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { Product } from '../products/entities/product.entity';
 import { Seller } from '../sellers/entities/seller.entity';
@@ -46,6 +47,8 @@ describe('ListingsService.list', () => {
   const sellerFindOne = jest.fn();
   const userFindOne = jest.fn();
   const notify = jest.fn();
+  const reverseGeocode = jest.fn();
+  const sellerUpdate = jest.fn();
   let service: ListingsService;
 
   beforeEach(async () => {
@@ -74,13 +77,14 @@ describe('ListingsService.list', () => {
         },
         {
           provide: getRepositoryToken(Seller),
-          useValue: { findOne: sellerFindOne },
+          useValue: { findOne: sellerFindOne, update: sellerUpdate },
         },
         {
           provide: getRepositoryToken(User),
           useValue: { findOne: userFindOne },
         },
         { provide: NotificationsService, useValue: { notify } },
+        { provide: MapService, useValue: { reverseGeocode } },
       ],
     }).compile();
 
@@ -97,7 +101,9 @@ describe('ListingsService.list', () => {
           id: 'cccccccc-1111-4111-8111-111111111111',
           product: 'Kente cloth',
           seller: 'Makola Fabrics',
-          location: { latitude: 5.55, longitude: -0.2 },
+          location: null,
+          locationName: null,
+          coordinates: { latitude: 5.55, longitude: -0.2 },
           date: '2026-05-06T11:00:00.000Z',
           status: 'pending',
           image: null,
@@ -128,7 +134,7 @@ describe('ListingsService.list', () => {
     },
   );
 
-  it('takes the location from the seller, as numbers', async () => {
+  it('takes the coordinates from the seller, as numbers', async () => {
     find.mockResolvedValue([
       listing({
         seller: shop({
@@ -140,7 +146,18 @@ describe('ListingsService.list', () => {
 
     const { data } = await service.list();
 
-    expect(data[0].location).toEqual({ latitude: 5.55, longitude: -0.2 });
+    expect(data[0].coordinates).toEqual({ latitude: 5.55, longitude: -0.2 });
+  });
+
+  it('gives the place name as location, not the coordinates', async () => {
+    find.mockResolvedValue([
+      listing({ seller: shop({ locationName: 'Ussher Town, Accra, Ghana' }) }),
+    ]);
+
+    const { data } = await service.list();
+
+    expect(data[0].location).toBe('Ussher Town, Accra, Ghana');
+    expect(data[0].locationName).toBe('Ussher Town, Accra, Ghana');
   });
 
   it('survives a listing whose seller is missing', async () => {
@@ -155,14 +172,14 @@ describe('ListingsService.list', () => {
     });
   });
 
-  it('gives a null location when the seller has no coordinates', async () => {
+  it('gives null coordinates when the seller has none', async () => {
     find.mockResolvedValue([
       listing({ seller: shop({ latitude: undefined, longitude: undefined }) }),
     ]);
 
     const { data } = await service.list();
 
-    expect(data[0].location).toBeNull();
+    expect(data[0].coordinates).toBeNull();
   });
 
   it('uses imageUrl once the column exists', async () => {

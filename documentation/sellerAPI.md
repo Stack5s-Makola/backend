@@ -7,6 +7,18 @@ Local: `http://localhost:3000` · Deployed: `https://makola-backend-r9wy.onrende
 > Not yet deployed. These live on `feat/mobile`; the deployed build only has
 > the admin endpoints so far.
 
+> **Locations are names, not coordinates.** Every response that used to carry
+> a `location` object of `latitude`/`longitude` now carries a place name
+> string instead - `"Ussher Town, Accra, Ghana"` - resolved from those same
+> coordinates. `locationName` carries the identical value, so a screen reading
+> either field works. It is `null` only when there are no coordinates at all.
+>
+> The **one exception** is the map (section 7d), which also returns
+> `coordinates` - a pin has to be dropped at a point.
+>
+> You still **send** coordinates: search radius, distance and the map all work
+> from numbers.
+
 ---
 
 ## 1. Sign up
@@ -260,8 +272,9 @@ GET /api/seller/me
     "phone": "0241234567",
     "shopName": "Makola Fabrics",
     "description": null,
-    "logo": null,
-    "location": { "latitude": 5.575, "longitude": -0.2 },
+    "logo": "https://res.cloudinary.com/…/photo.png",
+    "location": "Ussher Town, Accra, Ghana",
+    "locationName": "Ussher Town, Accra, Ghana",
     "verificationStatus": "pending",
     "joined": "2026-09-23T00:35:42.121Z"
   }
@@ -270,7 +283,10 @@ GET /api/seller/me
 
 `id` is the **shop**; `userId` is the account. `verificationStatus` is
 `pending` until an admin approves the shop - it does not block anything today.
-`name` and `logo` are `null` until something writes them; `description` has a
+`logo` is the **owner's profile picture** - the same URL as `avatar`. Every
+endpoint that returns a shop picture reads it from the owner's account, with
+the shop's own `logoUrl` as a fallback for shops that set one before accounts
+had pictures. `name` is `null` until something writes it; `description` has a
 column but no endpoint sets it yet.
 
 ---
@@ -330,7 +346,7 @@ POST /api/seller/me/update/phone       { "phone": "0241234567" }
 
 ```json
 { "success": true, "message": "Shop name updated",   "data": { "shopName": "Ama Fabrics" } }
-{ "success": true, "message": "Location updated",    "data": { "location": { "latitude": 5.575, "longitude": -0.2 } } }
+{ "success": true, "message": "Location updated",    "data": { "location": "Ussher Town, Accra, Ghana", "locationName": "Ussher Town, Accra, Ghana" } }
 { "success": true, "message": "Phone number updated","data": { "phone": "0241234567" } }
 ```
 
@@ -352,6 +368,80 @@ There is no column for one of those.
 
 Moving the location moves the **whole shop**, so every listing shows in the
 new place. There is no per-listing location.
+
+---
+
+## 7d. The map: other shops around yours
+
+```
+GET /api/seller/shops/nearby?radiusKm=25
+GET /api/seller/shops/nearby?latitude=5.55&longitude=-0.2&radiusKm=10
+```
+
+Every other shop inside the radius, nearest first, **whole** - so tapping a
+pin opens that shop with no second call. Your own shop is always excluded.
+
+| Query | Required | Notes |
+| --- | --- | --- |
+| `latitude` | no | defaults to your own shop's position |
+| `longitude` | no | send both, or neither |
+| `radiusKm` | no | defaults to 25, capped at 500 |
+
+```json
+{
+  "success": true,
+  "message": "Nearby shops retrieved",
+  "data": [
+    {
+      "id": "…",
+      "shopName": "Zigi Phones",
+      "description": null,
+      "logo": "https://res.cloudinary.com/…/owner.jpg",
+      "location": "Ussher Town, Accra, Ghana",
+      "locationName": "Ussher Town, Accra, Ghana",
+      "coordinates": { "latitude": 5.6037, "longitude": -0.187 },
+      "distanceKm": 2.8,
+      "verificationStatus": "approved",
+      "joined": "2026-09-23T15:40:02.622Z",
+      "owner": {
+        "id": "…",
+        "name": "Ama Mensah",
+        "profilePicture": "https://res.cloudinary.com/…/owner.jpg",
+        "email": "ama@example.com",
+        "phone": "0241234567",
+        "isEmailVerified": true
+      },
+      "productCount": 1,
+      "products": [
+        {
+          "id": "…",
+          "name": "Iphone 16 pro max",
+          "price": 250.5,
+          "quantity": 4,
+          "image": "https://res.cloudinary.com/…/phone.jpg",
+          "category": "Phones",
+          "tags": ["apple", "phone"],
+          "status": "approved",
+          "moderationNote": null,
+          "listedAt": "2026-09-23T15:40:02.622Z"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**`coordinates` is the one place raw numbers still come back**, because a pin
+is dropped at a point and a place name cannot be plotted.
+
+`products` holds that shop's **approved** listings only, and `productCount` is
+that list's length. A shop with no coordinates is left out entirely.
+
+| Situation | Status | `message` |
+| --- | --- | --- |
+| your shop has no location and you sent none | 400 | `Your shop has no location yet. Set one, or send latitude and longitude` |
+| `radiusKm` 0 or negative | 400 | `radiusKm must be greater than 0` |
+| no token | 401 | `Unauthorized` |
 
 ---
 

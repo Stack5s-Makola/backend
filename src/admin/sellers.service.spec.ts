@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { MapService } from '../map/map.service';
 import { Seller } from '../sellers/entities/seller.entity';
 import { User } from '../users/entities/user.entity';
 import { SellersService } from './sellers.service';
@@ -25,6 +26,8 @@ function seller(overrides: Partial<Seller> = {}): Seller {
 describe('SellersService.list', () => {
   const sellerFind = jest.fn();
   const userFind = jest.fn();
+  const reverseGeocode = jest.fn();
+  const sellerUpdate = jest.fn();
   let service: SellersService;
 
   beforeEach(async () => {
@@ -36,9 +39,10 @@ describe('SellersService.list', () => {
         SellersService,
         {
           provide: getRepositoryToken(Seller),
-          useValue: { find: sellerFind },
+          useValue: { find: sellerFind, update: sellerUpdate },
         },
         { provide: getRepositoryToken(User), useValue: { find: userFind } },
+        { provide: MapService, useValue: { reverseGeocode } },
       ],
     }).compile();
 
@@ -64,11 +68,20 @@ describe('SellersService.list', () => {
     });
   });
 
-  it('prefers the shop logo over the owner avatar', async () => {
+  it("prefers the owner's picture over the shop's own logo", async () => {
     sellerFind.mockResolvedValue([seller({ logoUrl: 'https://cdn/shop.png' })]);
     userFind.mockResolvedValue([
       { id: OWNER, email: 'ama@example.com', avatarUrl: 'https://cdn/ama.jpg' },
     ]);
+
+    const { data } = await service.list();
+
+    expect(data[0].profilePicture).toBe('https://cdn/ama.jpg');
+  });
+
+  it('falls back to the shop logo when the owner has no picture', async () => {
+    sellerFind.mockResolvedValue([seller({ logoUrl: 'https://cdn/shop.png' })]);
+    userFind.mockResolvedValue([{ id: OWNER, email: 'ama@example.com' }]);
 
     const { data } = await service.list();
 
@@ -96,8 +109,9 @@ describe('SellersService.list', () => {
         email: 'ama@example.com',
         profilePicture: null,
         businessName: 'Makola Fabrics',
-        location: { latitude: 5.55, longitude: -0.2 },
+        location: null,
         locationName: null,
+        coordinates: { latitude: 5.55, longitude: -0.2 },
         isEmailVerified: false,
         status: 'approved',
       },
@@ -114,17 +128,28 @@ describe('SellersService.list', () => {
 
     const { data } = await service.list();
 
-    expect(data[0].location).toEqual({ latitude: 5.55, longitude: -0.2 });
+    expect(data[0].coordinates).toEqual({ latitude: 5.55, longitude: -0.2 });
   });
 
-  it('gives a null location when coordinates are missing', async () => {
+  it('gives null coordinates when they are missing', async () => {
     sellerFind.mockResolvedValue([
       seller({ latitude: undefined, longitude: undefined }),
     ]);
 
     const { data } = await service.list();
 
-    expect(data[0].location).toBeNull();
+    expect(data[0].coordinates).toBeNull();
+  });
+
+  it('gives the place name as location, not the coordinates', async () => {
+    sellerFind.mockResolvedValue([
+      seller({ locationName: 'Ussher Town, Accra, Ghana' }),
+    ]);
+
+    const { data } = await service.list();
+
+    expect(data[0].location).toBe('Ussher Town, Accra, Ghana');
+    expect(data[0].locationName).toBe('Ussher Town, Accra, Ghana');
   });
 
   it('leaves email null when no user row matches', async () => {
