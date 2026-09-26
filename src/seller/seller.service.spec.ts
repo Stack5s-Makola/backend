@@ -322,7 +322,7 @@ describe('SellerService', () => {
         userId: USER_ID,
         email: 'ama@example.com',
         shopName: 'Makola Fabrics',
-        location: { latitude: 5.575, longitude: -0.2 },
+        location: 'Ussher Town, Accra, Ghana',
         verificationStatus: 'approved',
       });
     });
@@ -562,7 +562,7 @@ describe('SellerService', () => {
       ).resolves.toEqual({
         message: 'Location updated',
         data: {
-          location: { latitude: 6.7, longitude: -1.62 },
+          location: 'Ussher Town, Accra, Ghana',
           locationName: 'Ussher Town, Accra, Ghana',
         },
       });
@@ -641,6 +641,8 @@ describe('SellerService', () => {
         latitude: 5.575,
         longitude: -0.2,
         verificationStatus: 'approved',
+        // NOT NULL in the schema, so a real row always has one.
+        createdAt: new Date('2026-01-01T00:00:00.000Z'),
         ...overrides,
       }) as Seller;
 
@@ -762,6 +764,7 @@ describe('SellerService', () => {
           longitude: -0.2,
           verificationStatus: 'approved',
           logoUrl: 'https://cdn/shop.png',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
         } as Seller,
       ]);
       userFind.mockResolvedValue([
@@ -783,6 +786,7 @@ describe('SellerService', () => {
           longitude: -0.2,
           verificationStatus: 'approved',
           logoUrl: 'https://cdn/shop.png',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
         } as Seller,
       ]);
       userFind.mockResolvedValue([{ id: OWNER, avatarUrl: undefined }]);

@@ -6,6 +6,11 @@ Everything the four dashboard tabs need. Base path `/api/admin`.
 > from the admin module that was deleted and rebuilt. Only what is listed
 > below exists.
 
+> **`location` is a place name, not coordinates.** Every table returns the
+> readable place - `"Ussher Town, Accra, Ghana"` - resolved from the stored
+> latitude and longitude. The raw numbers are still there under
+> **`coordinates`**, for plotting on the dashboard's map.
+
 Local: `http://localhost:3000` · Deployed: `https://makola-backend-r9wy.onrender.com`
 
 ---
@@ -136,7 +141,9 @@ GET /api/admin/sellers
       "profilePicture": null,
       "businessName": "The Test Shop",
       "isEmailVerified": false,
-      "location": { "latitude": 5.55, "longitude": -0.2 },
+      "location": "Ussher Town, Accra, Ghana",
+      "locationName": "Ussher Town, Accra, Ghana",
+      "coordinates": { "latitude": 5.55, "longitude": -0.2 },
       "status": "pending"
     }
   ]
@@ -148,9 +155,11 @@ GET /api/admin/sellers
 | `id` | uuid | the seller, not the user |
 | `name` | string \| null | **always null today** - see section 8 |
 | `email` | string \| null | the owner's email; the only identifier available now |
-| `profilePicture` | string \| null | **always null today** - see section 8 |
+| `profilePicture` | string \| null | the owner's profile picture; falls back to the shop's own logo, then null |
 | `businessName` | string | the shop name |
-| `location` | `{ latitude, longitude }` \| null | numbers, not strings; null when the shop has no coordinates |
+| `location` | string \| null | **the place name**, e.g. `"Ussher Town, Accra, Ghana"`; resolved from the coordinates on first read and then stored |
+| `locationName` | string \| null | the same value |
+| `coordinates` | `{ latitude, longitude }` \| null | numbers, not strings. **Kept for the dashboard's map**, since a name cannot be plotted; null when the shop has none |
 | `status` | `"pending"` \| `"approved"` \| `"rejected"` | verification state |
 
 Newest first.
@@ -187,7 +196,10 @@ GET /api/admin/buyers
 | `name` | string \| null | **always null today** - see section 8 |
 | `email` | string | always present |
 | `phone` | string \| null | null when the account has none |
-| `profilePicture` | string \| null | **always null today** - see section 8 |
+| `profilePicture` | string \| null | the buyer's own picture, if they registered with one |
+| `location` | string \| null | **the place name** for where they are; null when they gave no coordinates |
+| `locationName` | string \| null | the same value |
+| `coordinates` | `{ latitude, longitude }` \| null | numbers, for the dashboard's map |
 | `joined` | ISO timestamp | when they signed up |
 | `status` | `"active"` \| `"suspended"` \| `"deleted"` | `deleted` is a soft delete - the row is still returned |
 
@@ -260,14 +272,18 @@ it - so it needs no second call for the seller.
     "moderationNote": null,
     "moderatedBy": null,
     "moderatedAt": null,
-    "location": { "latitude": 5.575, "longitude": -0.2 },
+    "location": "Ussher Town, Accra, Ghana",
+    "locationName": "Ussher Town, Accra, Ghana",
+    "coordinates": { "latitude": 5.575, "longitude": -0.2 },
     "date": "2026-09-25T01:37:33.577Z",
     "updatedAt": "2026-09-25T01:37:33.577Z",
     "shop": {
       "id": "56065822-…",
       "shopName": "Makola Fabrics",
-      "logo": null,
-      "location": { "latitude": 5.575, "longitude": -0.2 },
+      "logo": "https://res.cloudinary.com/…/owner.jpg",
+      "location": "Ussher Town, Accra, Ghana",
+      "locationName": "Ussher Town, Accra, Ghana",
+      "coordinates": { "latitude": 5.575, "longitude": -0.2 },
       "verificationStatus": "pending",
       "ownerName": "Ama Mensah",
       "ownerEmail": "ama@example.com",

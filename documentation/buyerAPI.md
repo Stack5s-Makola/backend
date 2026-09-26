@@ -4,6 +4,18 @@ Everything the buyer side of the mobile app needs. Base path `/api`.
 
 Local: `http://localhost:3000` · Deployed: `https://makola-backend-r9wy.onrender.com`
 
+> **Locations are names, not coordinates.** Every response that used to carry
+> a `location` object of `latitude`/`longitude` now carries a place name
+> string instead - `"Ussher Town, Accra, Ghana"` - resolved from those same
+> coordinates. `locationName` carries the identical value, so a screen reading
+> either field works. It is `null` only when there are no coordinates at all.
+>
+> The **one exception** is the map (section 10b), which also returns
+> `coordinates` - a pin has to be dropped at a point.
+>
+> You still **send** coordinates: search radius, distance and the map all work
+> from numbers.
+
 ---
 
 ## 1. Sign up
@@ -158,6 +170,17 @@ Authorization: Bearer <accessToken>
 | No header, or not `Bearer` | `401` | `Authentication token is missing` |
 | Forged or malformed | `401` | `Authentication token is invalid or expired` |
 
+```
+GET  /api/buyer/products              the home page
+GET  /api/buyer/products/search?q=    search
+GET  /api/buyer/products/:id          one product
+GET  /api/buyer/shops/nearby          the map - section 10b
+GET  /api/buyer/saved/products        saved items
+GET  /api/buyer/saved/shops
+GET  /api/buyer/my-profile            profile - section 11
+GET  /api/buyer/my-profile/personal-details
+```
+
 A seller's token works on these too - browsing is not role restricted.
 
 ---
@@ -209,7 +232,8 @@ All query parameters optional, and they combine.
       "category": "Phones",
       "tags": ["apple", "phone"],
       "seller": { "id": "…", "shopName": "Zigi Phones" },
-      "location": { "latitude": 5.6037, "longitude": -0.187 },
+      "location": "Ussher Town, Accra, Ghana",
+      "locationName": "Ussher Town, Accra, Ghana",
       "distanceKm": 2.8,
       "listedAt": "2026-09-23T15:40:02.622Z"
     }
@@ -224,7 +248,8 @@ All query parameters optional, and they combine.
 | `category` | string \| null | |
 | `tags` | string[] | always an array |
 | `seller` | object \| null | |
-| `location` | object \| null | the **seller's** coordinates; a listing has none of its own |
+| `location` | string \| null | **where the shop is, as a place name** - a listing has no location of its own. Resolved from the shop's coordinates; `null` when it has none |
+| `locationName` | string \| null | the same name, under the older field name |
 | `distanceKm` | number | **only present** when you sent coordinates |
 | `listedAt` | ISO timestamp | |
 
@@ -279,15 +304,17 @@ GET /api/buyer/products/:id
     "subcategory": null,
     "tags": ["apple", "phone"],
     "status": "approved",
+    "location": "Ussher Town, Accra, Ghana",
+    "locationName": "Ussher Town, Accra, Ghana",
     "seller": { "id": "…", "shopName": "Zigi Phones" },
     "shop": {
       "id": "…",
       "shopName": "Zigi Phones",
-      "logo": null,
-      "location": { "latitude": 5.6037, "longitude": -0.187 },
+      "logo": "https://res.cloudinary.com/…/owner.jpg",
+      "location": "Ussher Town, Accra, Ghana",
+      "locationName": "Ussher Town, Accra, Ghana",
       "verificationStatus": "pending"
     },
-    "location": { "latitude": 5.6037, "longitude": -0.187 },
     "listedAt": "2026-09-23T15:40:02.622Z"
   }
 }
@@ -296,6 +323,10 @@ GET /api/buyer/products/:id
 Everything from a card, plus `subcategory`, `status` and the fuller `shop`
 block - so the page needs no second call. `seller` and `shop` are the same
 shop; `seller` is the short form the lists use.
+
+`shop.logo` is the **owner's profile picture**, and `null` only when the owner
+never uploaded one. It is the same picture on every screen that shows a shop:
+here, saved shops, and the nearby map.
 
 | Situation | Status | `message` |
 | --- | --- | --- |
@@ -333,8 +364,9 @@ item.
     {
       "id": "…",
       "shopName": "Zigi Phones",
-      "logo": null,
-      "location": { "latitude": 5.6037, "longitude": -0.187 },
+      "logo": "https://res.cloudinary.com/…/owner.jpg",
+      "location": "Ussher Town, Accra, Ghana",
+      "locationName": "Ussher Town, Accra, Ghana",
       "verificationStatus": "approved"
     }
   ]
@@ -351,6 +383,82 @@ database; the write side does not exist on the buyer routes.
 
 ---
 
+## 10b. The map: shops around you, in full
+
+```
+GET /api/buyer/shops/nearby?latitude=5.55&longitude=-0.2&radiusKm=25
+```
+
+Every shop inside the radius, nearest first, **whole** - so tapping a pin
+opens the shop with no second call.
+
+| Query | Required | Notes |
+| --- | --- | --- |
+| `latitude` | yes | the centre of the map |
+| `longitude` | yes | |
+| `radiusKm` | no | defaults to 25, capped at 500 |
+
+```json
+{
+  "success": true,
+  "message": "Shops retrieved",
+  "data": [
+    {
+      "id": "…",
+      "shopName": "Zigi Phones",
+      "description": null,
+      "logo": "https://res.cloudinary.com/…/owner.jpg",
+      "location": "Ussher Town, Accra, Ghana",
+      "locationName": "Ussher Town, Accra, Ghana",
+      "coordinates": { "latitude": 5.6037, "longitude": -0.187 },
+      "distanceKm": 2.8,
+      "verificationStatus": "approved",
+      "joined": "2026-09-23T15:40:02.622Z",
+      "owner": {
+        "id": "…",
+        "name": "Ama Mensah",
+        "profilePicture": "https://res.cloudinary.com/…/owner.jpg",
+        "email": "ama@example.com",
+        "phone": "0241234567",
+        "isEmailVerified": true
+      },
+      "productCount": 2,
+      "products": [
+        {
+          "id": "…",
+          "name": "Iphone 16 pro max",
+          "price": 250.5,
+          "image": "https://res.cloudinary.com/…/phone.jpg",
+          "category": "Phones",
+          "tags": ["apple", "phone"],
+          "seller": { "id": "…", "shopName": "Zigi Phones" },
+          "location": "Ussher Town, Accra, Ghana",
+          "locationName": "Ussher Town, Accra, Ghana",
+          "listedAt": "2026-09-23T15:40:02.622Z"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**`coordinates` is the one place raw numbers still come back**, because a pin
+is dropped at a point and a place name cannot be plotted. `location` is still
+the name, as everywhere else.
+
+`products` holds the shop's **approved** listings only, and `productCount` is
+that list's length - the number and the listings can never disagree.
+
+A shop with no coordinates is left out entirely: there is nowhere to draw it.
+
+| Situation | Status | `message` |
+| --- | --- | --- |
+| no `latitude` / `longitude` | 400 | `latitude is required and must be between -90 and 90` |
+| `radiusKm` 0 or negative | 400 | `radiusKm must be greater than 0` |
+| no token | 401 | `Unauthorized` |
+
+---
+
 ## 11. Profile
 
 ```
@@ -361,28 +469,36 @@ GET /api/buyer/my-profile/personal-details
 Both read the account from the token.
 
 ```json
-{ "name": null, "profilePicture": "https://…/photo.png", "email": "kofi@example.com" }
+{
+  "name": "Kofi Boateng",
+  "profilePicture": "https://…/photo.png",
+  "email": "kofi@example.com",
+  "location": "Ussher Town, Accra, Ghana",
+  "locationName": "Ussher Town, Accra, Ghana"
+}
 ```
 
 ```json
 {
   "id": "…",
-  "name": null,
+  "name": "Kofi Boateng",
   "profilePicture": "https://…/photo.png",
   "email": "kofi@example.com",
   "phone": "0241234567",
   "role": "BUYER",
   "status": "active",
   "emailVerified": false,
+  "location": "Ussher Town, Accra, Ghana",
+  "locationName": "Ussher Town, Accra, Ghana",
   "joined": "2026-09-21T17:52:14.660Z"
 }
 ```
 
 `profilePicture` is set if they registered with an image, otherwise `null`.
 
-**`name` is always `null`.** There is no name column on `users` - nothing
-stores one, so the screen has the email and the picture to work with. Design
-for that.
+`location` is **the buyer's own place name**, never coordinates, resolved from
+the latitude and longitude they signed up with. `locationName` is the same
+value. Both are `null` only when they gave no coordinates at all.
 
 `status` is `active`, `suspended` or `deleted`; `deleted` is a soft delete.
 

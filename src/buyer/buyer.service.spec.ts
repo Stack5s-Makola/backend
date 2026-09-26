@@ -18,6 +18,9 @@ import { BuyerService } from './buyer.service';
 
 const LISTED = new Date('2026-05-06T11:00:00.000Z');
 
+// What the mocked Mapbox resolves every coordinate to.
+const PLACE = 'Ussher Town, Accra, Ghana';
+
 // Accra, and a shop about 3km away
 const ACCRA = { latitude: 5.55, longitude: -0.2 };
 const NEARBY = { latitude: 5.575, longitude: -0.2 };
@@ -30,6 +33,8 @@ function shop(overrides: Partial<Seller> = {}): Seller {
     shopName: 'Makola Fabrics',
     latitude: NEARBY.latitude,
     longitude: NEARBY.longitude,
+    // NOT NULL in the schema, so a real row always has one.
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
     ...overrides,
   } as Seller;
 }
@@ -58,6 +63,8 @@ describe('BuyerService', () => {
   const countsGetRawMany = jest.fn();
   const savedProductFind = jest.fn();
   const savedShopFind = jest.fn();
+  const sellerUpdate = jest.fn();
+  const productFind = jest.fn();
   const getMany = jest.fn();
   const andWhere = jest.fn();
   const where = jest.fn();
@@ -117,6 +124,8 @@ describe('BuyerService', () => {
     getMany.mockResolvedValue([]);
     savedProductFind.mockResolvedValue([]);
     savedShopFind.mockResolvedValue([]);
+    sellerUpdate.mockResolvedValue({ affected: 1 });
+    productFind.mockResolvedValue([]);
     productFindOne.mockResolvedValue(listing());
     userFindOne.mockResolvedValue({
       id: 'user-a',
@@ -141,6 +150,7 @@ describe('BuyerService', () => {
               alias === 'product' && countsGetRawMany.mock.calls.length >= 0
                 ? { ...builder, ...countsBuilder }
                 : builder,
+            find: productFind,
             findOne: productFindOne,
           },
         },
@@ -162,7 +172,10 @@ describe('BuyerService', () => {
         },
         {
           provide: getRepositoryToken(Seller),
-          useValue: { createQueryBuilder: () => sellerNearbyBuilder },
+          useValue: {
+            createQueryBuilder: () => sellerNearbyBuilder,
+            update: sellerUpdate,
+          },
         },
         { provide: MapService, useValue: { reverseGeocode } },
         { provide: UploadsService, useValue: { uploadImage } },
@@ -190,8 +203,8 @@ describe('BuyerService', () => {
               id: 'bbbbbbbb-1111-4111-8111-111111111111',
               shopName: 'Makola Fabrics',
             },
-            location: NEARBY,
-            locationName: null,
+            location: PLACE,
+            locationName: PLACE,
             listedAt: '2026-05-06T11:00:00.000Z',
           },
         ],
@@ -466,8 +479,8 @@ describe('BuyerService', () => {
           id: 'bbbbbbbb-1111-4111-8111-111111111111',
           shopName: 'Makola Fabrics',
           logo: null,
-          location: NEARBY,
-          locationName: null,
+          location: PLACE,
+          locationName: PLACE,
           verificationStatus: 'approved',
         },
       ]);
@@ -504,6 +517,33 @@ describe('BuyerService', () => {
         message: 'Saved shops retrieved',
         data: [],
       });
+    });
+
+    it("shows each shop owner's profile picture", async () => {
+      const OWNER = '22222222-2222-4222-8222-222222222222';
+      savedShopFind.mockResolvedValue([
+        {
+          id: 's1',
+          seller: shop({ userId: OWNER, logoUrl: 'https://cdn/shop.png' }),
+        },
+      ]);
+      userFind.mockResolvedValue([
+        { id: OWNER, avatarUrl: 'https://cdn/owner.png' },
+      ]);
+
+      expect((await service.savedShopsFor(USER)).data[0].logo).toBe(
+        'https://cdn/owner.png',
+      );
+    });
+
+    it('falls back to the shop logo when the owner has no picture', async () => {
+      savedShopFind.mockResolvedValue([
+        { id: 's1', seller: shop({ logoUrl: 'https://cdn/shop.png' }) },
+      ]);
+
+      expect((await service.savedShopsFor(USER)).data[0].logo).toBe(
+        'https://cdn/shop.png',
+      );
     });
   });
 
@@ -549,6 +589,40 @@ describe('BuyerService', () => {
       expect(data.shop).toBeNull();
       expect(data.location).toBeNull();
     });
+
+    it("shows the shop owner's profile picture", async () => {
+      const OWNER = '22222222-2222-4222-8222-222222222222';
+      productFindOne.mockResolvedValue(
+        listing({
+          seller: shop({ userId: OWNER, logoUrl: 'https://cdn/shop.png' }),
+        }),
+      );
+      userFind.mockResolvedValue([
+        { id: OWNER, avatarUrl: 'https://cdn/owner.png' },
+      ]);
+
+      const { data } = await service.product(ID);
+
+      expect(data.shop?.logo).toBe('https://cdn/owner.png');
+    });
+
+    it('falls back to the shop logo when the owner has no picture', async () => {
+      productFindOne.mockResolvedValue(
+        listing({ seller: shop({ logoUrl: 'https://cdn/shop.png' }) }),
+      );
+
+      const { data } = await service.product(ID);
+
+      expect(data.shop?.logo).toBe('https://cdn/shop.png');
+    });
+
+    it('looks up no owner for a listing with no seller', async () => {
+      productFindOne.mockResolvedValue(listing({ seller: undefined }));
+
+      await service.product(ID);
+
+      expect(userFind).not.toHaveBeenCalled();
+    });
   });
 
   describe('profile', () => {
@@ -559,6 +633,7 @@ describe('BuyerService', () => {
           name: null,
           profilePicture: null,
           email: 'kofi@example.com',
+          location: null,
           locationName: null,
         },
       });
@@ -609,6 +684,7 @@ describe('BuyerService', () => {
           role: 'BUYER',
           status: 'active',
           emailVerified: true,
+          location: null,
           locationName: null,
           joined: '2026-03-04T09:30:00.000Z',
         },
@@ -687,13 +763,29 @@ describe('BuyerService', () => {
       expect(data[0].locationName).toBe('Ussher Town, Accra, Ghana');
     });
 
-    it('counts only approved listings', async () => {
+    it('counts the approved listings it returns, so the two agree', async () => {
       sellerGetMany.mockResolvedValue([near]);
-      countsGetRawMany.mockResolvedValue([{ sellerId: 'near', count: '7' }]);
+      productFind.mockResolvedValue([
+        listing({ id: 'p1', seller: near }),
+        listing({ id: 'p2', seller: near }),
+      ]);
 
       const { data } = await service.nearbyShops(ACCRA);
 
-      expect(data[0].productCount).toBe(7);
+      expect(data[0].productCount).toBe(2);
+      expect(data[0].products).toHaveLength(2);
+    });
+
+    it('asks for approved listings only, for the shops in radius', async () => {
+      sellerGetMany.mockResolvedValue([near]);
+
+      await service.nearbyShops(ACCRA);
+
+      const [options] = productFind.mock.calls[0] as [
+        { where: { approvalStatus: string } },
+      ];
+
+      expect(options.where.approvalStatus).toBe('approved');
     });
 
     it('reports zero for a shop with nothing approved', async () => {

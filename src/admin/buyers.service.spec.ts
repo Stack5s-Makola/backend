@@ -1,6 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { In } from 'typeorm';
+import { MapService } from '../map/map.service';
 import { User } from '../users/entities/user.entity';
 import { BuyersService } from './buyers.service';
 
@@ -19,6 +20,8 @@ function buyer(overrides: Partial<User> = {}): User {
 
 describe('BuyersService.list', () => {
   const find = jest.fn();
+  const update = jest.fn();
+  const reverseGeocode = jest.fn();
   let service: BuyersService;
 
   beforeEach(async () => {
@@ -27,7 +30,8 @@ describe('BuyersService.list', () => {
     const module = await Test.createTestingModule({
       providers: [
         BuyersService,
-        { provide: getRepositoryToken(User), useValue: { find } },
+        { provide: getRepositoryToken(User), useValue: { find, update } },
+        { provide: MapService, useValue: { reverseGeocode } },
       ],
     }).compile();
 
@@ -46,6 +50,9 @@ describe('BuyersService.list', () => {
           email: 'kofi@example.com',
           phone: '0241234567',
           profilePicture: null,
+          location: null,
+          locationName: null,
+          coordinates: null,
           joined: '2026-03-04T09:30:00.000Z',
           isEmailVerified: false,
           status: 'active',
@@ -85,9 +92,38 @@ describe('BuyersService.list', () => {
       'emailVerified',
       'fullName',
       'id',
+      'latitude',
+      'locationName',
+      'longitude',
       'phone',
       'status',
     ]);
+  });
+
+  it('gives the place name as location, not the coordinates', async () => {
+    find.mockResolvedValue([
+      buyer({
+        latitude: 5.55,
+        longitude: -0.2,
+        locationName: 'Ussher Town, Accra, Ghana',
+      }),
+    ]);
+
+    const { data } = await service.list();
+
+    expect(data[0].location).toBe('Ussher Town, Accra, Ghana');
+    expect(data[0].locationName).toBe('Ussher Town, Accra, Ghana');
+    expect(data[0].coordinates).toEqual({ latitude: 5.55, longitude: -0.2 });
+  });
+
+  it('resolves a place name for a buyer that has none stored', async () => {
+    find.mockResolvedValue([buyer({ latitude: 5.55, longitude: -0.2 })]);
+    reverseGeocode.mockResolvedValue('Ussher Town, Accra, Ghana');
+
+    const { data } = await service.list();
+
+    expect(reverseGeocode).toHaveBeenCalledWith(5.55, -0.2);
+    expect(data[0].location).toBe('Ussher Town, Accra, Ghana');
   });
 
   it('uses fullName and avatarUrl once the columns exist', async () => {
