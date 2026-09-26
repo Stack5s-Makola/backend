@@ -7,6 +7,7 @@ import { Test } from '@nestjs/testing';
 import * as bcrypt from 'bcrypt';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Category } from '../categories/entities/Categories.entity';
+import { Subcategory } from '../categories/entities/SubCategory.entity';
 import { Product } from '../products/entities/product.entity';
 import { Seller } from '../sellers/entities/seller.entity';
 import { SavedProduct } from '../saved/entities/SavedProduct.entity';
@@ -44,8 +45,11 @@ function listing(overrides: Partial<Product> = {}): Product {
     id: 'cccccccc-1111-4111-8111-111111111111',
     name: 'Kente cloth',
     price: 250,
+    quantity: 4,
     approvalStatus: 'approved',
     createdAt: LISTED,
+    // NOT NULL in the schema, so a real row always has one.
+    updatedAt: LISTED,
     seller: shop(),
     category: { id: 'cat', name: 'Fabrics' } as Category,
     ...overrides,
@@ -195,17 +199,28 @@ describe('BuyerService', () => {
           {
             id: 'cccccccc-1111-4111-8111-111111111111',
             name: 'Kente cloth',
+            description: null,
             price: 250,
+            quantity: 4,
             image: null,
             category: 'Fabrics',
+            subcategory: null,
             tags: [],
+            status: 'approved',
             seller: {
               id: 'bbbbbbbb-1111-4111-8111-111111111111',
               shopName: 'Makola Fabrics',
+              logo: null,
+              description: null,
+              verificationStatus: undefined,
+              location: PLACE,
+              locationName: PLACE,
+              owner: null,
             },
             location: PLACE,
             locationName: PLACE,
             listedAt: '2026-05-06T11:00:00.000Z',
+            updatedAt: '2026-05-06T11:00:00.000Z',
           },
         ],
       });
@@ -331,6 +346,119 @@ describe('BuyerService', () => {
     });
   });
 
+  describe('everything on a card', () => {
+    const OWNER = '22222222-2222-4222-8222-222222222222';
+
+    const full = (overrides: Partial<Product> = {}) =>
+      listing({
+        description: 'Handwoven, six yards',
+        quantity: 12,
+        imageUrl: 'https://cdn/kente.jpg',
+        subcategory: { id: 'sub', name: 'Kente' } as Subcategory,
+        seller: shop({
+          userId: OWNER,
+          description: 'Fabrics since 1994',
+          verificationStatus: 'approved',
+        }),
+        ...overrides,
+      });
+
+    beforeEach(() => {
+      userFind.mockResolvedValue([
+        {
+          id: OWNER,
+          email: 'ama@example.com',
+          phone: '0241234567',
+          fullName: 'Ama Mensah',
+          avatarUrl: 'https://cdn/ama.jpg',
+          emailVerified: true,
+        },
+      ]);
+    });
+
+    it('carries the product s own details', async () => {
+      getMany.mockResolvedValue([full()]);
+
+      const [card] = (await service.browse({})).data;
+
+      expect(card).toMatchObject({
+        description: 'Handwoven, six yards',
+        price: 250,
+        quantity: 12,
+        image: 'https://cdn/kente.jpg',
+        category: 'Fabrics',
+        subcategory: 'Kente',
+        status: 'approved',
+      });
+    });
+
+    it('carries the shop and the person behind it', async () => {
+      getMany.mockResolvedValue([full()]);
+
+      const [card] = (await service.browse({})).data;
+
+      expect(card.seller).toEqual({
+        id: 'bbbbbbbb-1111-4111-8111-111111111111',
+        shopName: 'Makola Fabrics',
+        logo: 'https://cdn/ama.jpg',
+        description: 'Fabrics since 1994',
+        verificationStatus: 'approved',
+        location: PLACE,
+        locationName: PLACE,
+        owner: {
+          id: OWNER,
+          name: 'Ama Mensah',
+          profilePicture: 'https://cdn/ama.jpg',
+          email: 'ama@example.com',
+          phone: '0241234567',
+          isEmailVerified: true,
+        },
+      });
+    });
+
+    it("uses the owner's picture as the shop logo", async () => {
+      getMany.mockResolvedValue([
+        full({
+          seller: shop({ userId: OWNER, logoUrl: 'https://cdn/old.png' }),
+        }),
+      ]);
+
+      const [card] = (await service.browse({})).data;
+
+      expect(card.seller?.logo).toBe('https://cdn/ama.jpg');
+      expect(card.seller?.owner?.profilePicture).toBe('https://cdn/ama.jpg');
+    });
+
+    it('leaves the owner null when the shop points at no account', async () => {
+      getMany.mockResolvedValue([listing({ seller: shop() })]);
+
+      const [card] = (await service.browse({})).data;
+
+      expect(card.seller?.owner).toBeNull();
+    });
+
+    it('looks the owners up once for a page from one shop', async () => {
+      getMany.mockResolvedValue([
+        full({ id: 'p1' }),
+        full({ id: 'p2' }),
+        full({ id: 'p3' }),
+      ]);
+
+      await service.browse({});
+
+      expect(userFind).toHaveBeenCalledTimes(1);
+    });
+
+    it('is null description and zero quantity on an older listing', async () => {
+      getMany.mockResolvedValue([listing({ quantity: 0 })]);
+
+      const [card] = (await service.browse({})).data;
+
+      expect(card.description).toBeNull();
+      expect(card.quantity).toBe(0);
+    });
+  });
+
   describe('search', () => {
     it('matches the name or the category, anywhere and any case', async () => {
       await service.search({ q: 'ken' });
@@ -434,7 +562,9 @@ describe('BuyerService', () => {
 
       expect(savedProductFind).toHaveBeenCalledWith({
         where: { user: { id: USER } },
-        relations: { product: { seller: true, category: true } },
+        relations: {
+          product: { seller: true, category: true, subcategory: true },
+        },
       });
     });
 

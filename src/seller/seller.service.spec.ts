@@ -58,6 +58,8 @@ const body: AddProductDto = {
 
 describe('SellerService', () => {
   const productFind = jest.fn();
+  const productFindOne = jest.fn();
+  const productDelete = jest.fn();
   const productInsert = jest.fn();
   const sellerFindOne = jest.fn();
   const sellerUpdate = jest.fn();
@@ -117,6 +119,8 @@ describe('SellerService', () => {
       avatarUrl: 'https://cdn/ama.jpg',
     });
     productFind.mockResolvedValue([]);
+    productFindOne.mockResolvedValue(listing());
+    productDelete.mockResolvedValue({ affected: 1 });
     getRawMany.mockResolvedValue([]);
     productInsert.mockResolvedValue({ identifiers: [{ id: 'new-id' }] });
     categoryGetOne.mockResolvedValue({ id: 'cat', name: 'Fabrics' });
@@ -129,6 +133,8 @@ describe('SellerService', () => {
           provide: getRepositoryToken(Product),
           useValue: {
             find: productFind,
+            findOne: productFindOne,
+            delete: productDelete,
             insert: productInsert,
             createQueryBuilder: () => productBuilder,
           },
@@ -629,6 +635,60 @@ describe('SellerService', () => {
       await expect(
         service.updatePhone(USER_ID, { phone: '0209999999' }),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('deleteProduct', () => {
+    const PRODUCT_ID = 'cccccccc-1111-4111-8111-111111111111';
+
+    it('deletes the listing and says so', async () => {
+      await expect(service.deleteProduct(USER_ID, PRODUCT_ID)).resolves.toEqual(
+        {
+          message: 'Product deleted',
+          data: { deleted: true, id: PRODUCT_ID, name: 'Kente cloth' },
+        },
+      );
+    });
+
+    it('really deletes the row rather than flagging it', async () => {
+      await service.deleteProduct(USER_ID, PRODUCT_ID);
+
+      expect(productDelete).toHaveBeenCalledWith({ id: PRODUCT_ID });
+    });
+
+    it('scopes the lookup to the caller s own shop', async () => {
+      await service.deleteProduct(USER_ID, PRODUCT_ID);
+
+      expect(productFindOne).toHaveBeenCalledWith({
+        where: { id: PRODUCT_ID, seller: { id: SHOP_ID } },
+      });
+    });
+
+    it('404s for a listing that is not in this seller s shop', async () => {
+      // The scoped query finds nothing, which is also what a wrong id gives.
+      productFindOne.mockResolvedValue(null);
+
+      await expect(service.deleteProduct(USER_ID, PRODUCT_ID)).rejects.toThrow(
+        'No product found in your shop for that id',
+      );
+    });
+
+    it('deletes nothing when the listing is not the caller s', async () => {
+      productFindOne.mockResolvedValue(null);
+
+      await expect(
+        service.deleteProduct(USER_ID, PRODUCT_ID),
+      ).rejects.toThrow();
+      expect(productDelete).not.toHaveBeenCalled();
+    });
+
+    it('403s when the account has no shop at all', async () => {
+      sellerFindOne.mockResolvedValue(null);
+
+      await expect(service.deleteProduct(USER_ID, PRODUCT_ID)).rejects.toThrow(
+        'This account does not have a shop',
+      );
+      expect(productDelete).not.toHaveBeenCalled();
     });
   });
 

@@ -227,31 +227,73 @@ All query parameters optional, and they combine.
     {
       "id": "0011b6fb-…",
       "name": "Iphone 16 pro max",
+      "description": "Sealed, 256GB, one year warranty",
       "price": 250.5,
+      "quantity": 12,
       "image": "https://res.cloudinary.com/…/phone.jpg",
       "category": "Phones",
+      "subcategory": "Smartphones",
       "tags": ["apple", "phone"],
-      "seller": { "id": "…", "shopName": "Zigi Phones" },
+      "status": "approved",
+      "seller": {
+        "id": "…",
+        "shopName": "Zigi Phones",
+        "logo": "https://res.cloudinary.com/…/owner.jpg",
+        "description": "Phones and accessories since 2019",
+        "verificationStatus": "approved",
+        "location": "Ussher Town, Accra, Ghana",
+        "locationName": "Ussher Town, Accra, Ghana",
+        "owner": {
+          "id": "…",
+          "name": "Ama Mensah",
+          "profilePicture": "https://res.cloudinary.com/…/owner.jpg",
+          "email": "ama@example.com",
+          "phone": "0241234567",
+          "isEmailVerified": true
+        }
+      },
       "location": "Ussher Town, Accra, Ghana",
       "locationName": "Ussher Town, Accra, Ghana",
       "distanceKm": 2.8,
-      "listedAt": "2026-09-23T15:40:02.622Z"
+      "listedAt": "2026-09-23T15:40:02.622Z",
+      "updatedAt": "2026-09-24T08:11:40.100Z"
     }
   ]
 }
 ```
 
+**Every card is the whole listing** - the product, the shop, and the person
+behind it - so a card renders and a product page opens with no second call.
+
 | Field | Type | Notes |
 | --- | --- | --- |
+| `name` | string | |
+| `description` | string \| null | what the seller wrote. **`null` on every listing today** - see the note below |
 | `price` | number | a number, not the string pg returns |
+| `quantity` | number | stock on hand. `0` means out of stock, not unlisted |
 | `image` | string \| null | `null` when the seller listed without one |
 | `category` | string \| null | |
+| `subcategory` | string \| null | |
 | `tags` | string[] | always an array |
-| `seller` | object \| null | |
+| `status` | string | always `approved` here; browsing never returns anything else |
+| `seller` | object \| null | the shop - see below. `null` only if the row points at no shop |
+| `seller.logo` | string \| null | the owner's profile picture, falling back to the shop's own logo |
+| `seller.description` | string \| null | what the **shop** says about itself |
+| `seller.verificationStatus` | string | `pending`, `approved` or `rejected` |
+| `seller.owner` | object \| null | name, picture, email, phone, `isEmailVerified` |
 | `location` | string \| null | **where the shop is, as a place name** - a listing has no location of its own. Resolved from the shop's coordinates; `null` when it has none |
 | `locationName` | string \| null | the same name, under the older field name |
 | `distanceKm` | number | **only present** when you sent coordinates |
-| `listedAt` | ISO timestamp | |
+| `listedAt` | ISO timestamp | when it was listed |
+| `updatedAt` | ISO timestamp | when it was last edited - a price change, a restock |
+
+> **`description` is always `null` today.** The column exists on `product`, but
+> `POST /api/seller/add` does not accept a description, so nothing ever writes
+> one. The field is in the contract and will fill in the moment that endpoint
+> takes it - design for a missing description in the meantime.
+
+The same card shape is returned by search (section 8), one product (section 9),
+saved products (section 10) and each shop's `products` on the map (10b).
 
 **Only approved listings appear here.** A seller's product is invisible until
 an admin approves it.
@@ -306,27 +348,20 @@ GET /api/buyer/products/:id
     "status": "approved",
     "location": "Ussher Town, Accra, Ghana",
     "locationName": "Ussher Town, Accra, Ghana",
-    "seller": { "id": "…", "shopName": "Zigi Phones" },
-    "shop": {
-      "id": "…",
-      "shopName": "Zigi Phones",
-      "logo": "https://res.cloudinary.com/…/owner.jpg",
-      "location": "Ussher Town, Accra, Ghana",
-      "locationName": "Ussher Town, Accra, Ghana",
-      "verificationStatus": "pending"
-    },
-    "listedAt": "2026-09-23T15:40:02.622Z"
+    "seller": { "…": "the same shop block as section 7" },
+    "shop": { "…": "identical to seller" },
+    "listedAt": "2026-09-23T15:40:02.622Z",
+    "updatedAt": "2026-09-24T08:11:40.100Z"
   }
 }
 ```
 
-Everything from a card, plus `subcategory`, `status` and the fuller `shop`
-block - so the page needs no second call. `seller` and `shop` are the same
-shop; `seller` is the short form the lists use.
+**Identical to a card from section 7.** `shop` and `seller` are the same
+object under two names, both carrying the shop, its picture and its `owner`.
 
-`shop.logo` is the **owner's profile picture**, and `null` only when the owner
-never uploaded one. It is the same picture on every screen that shows a shop:
-here, saved shops, and the nearby map.
+The one difference: `status` can be `pending`, `rejected` or `removed` here.
+A buyer reaching this from a saved item gets the listing with its state rather
+than a 404, so the app can say "no longer on sale".
 
 | Situation | Status | `message` |
 | --- | --- | --- |

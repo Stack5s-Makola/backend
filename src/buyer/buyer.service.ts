@@ -37,20 +37,54 @@ export interface UploadedImage {
   size: number;
 }
 
-/** One card on the buyer's home page. */
+/** The person behind a listing. */
+export interface ProductOwner {
+  id: string;
+  name: string | null;
+  profilePicture: string | null;
+  email: string;
+  phone: string | null;
+  isEmailVerified: boolean;
+}
+
+/** The shop a listing belongs to, and who runs it. */
+export interface ProductShop {
+  id: string;
+  shopName: string;
+  /** The owner's profile picture, falling back to the shop's own logo. */
+  logo: string | null;
+  /** What the shop says about itself. */
+  description: string | null;
+  verificationStatus: string;
+  /** Where the shop is, as a place name. */
+  location: string | null;
+  locationName: string | null;
+  /** The account behind it. Null when the row points at no user. */
+  owner: ProductOwner | null;
+}
+
+/**
+ * One card on the buyer's home page - the whole listing.
+ *
+ * Everything the product has, plus the shop and the person behind it, so a
+ * card can be rendered or a product page opened without a second call.
+ */
 export interface ProductCard {
   id: string;
   name: string;
+  /** What the seller wrote about it. Null until a seller sets one. */
+  description: string | null;
   price: number;
-  /** From product.imageUrl, which is not a column yet, so null for now. */
+  /** How many are in stock. Zero means out of stock, not unlisted. */
+  quantity: number;
   image: string | null;
   category: string | null;
-  /**
-   * From product.tags, which is not a column yet, so always empty for now.
-   * See documentation/pending-profile-fields.md.
-   */
+  subcategory: string | null;
   tags: string[];
-  seller: { id: string; shopName: string } | null;
+  /** pending | approved | rejected | removed. Always approved when browsing. */
+  status: string;
+  /** The shop, its picture, and its owner. */
+  seller: ProductShop | null;
   /**
    * Where the shop is, as a place name - a product has no location of its
    * own. Resolved from the shop's coordinates; null when it has none.
@@ -61,6 +95,20 @@ export interface ProductCard {
   /** Kilometres from the caller. Only present when they sent coordinates. */
   distanceKm?: number;
   listedAt: string;
+  /** When it was last edited - a price change, a restock. */
+  updatedAt: string;
+}
+
+/**
+ * What a batch of cards needs looking up before it can be built.
+ *
+ * Both maps are keyed by shop id and fetched once for the whole page, so a
+ * page of twenty listings from three shops costs one owner query and three
+ * place-name lookups rather than twenty of each.
+ */
+interface CardContext {
+  names: Map<string, string | null>;
+  owners: Map<string, User>;
 }
 
 /** One shop the buyer keeps on their phone. */
@@ -121,11 +169,14 @@ export interface NearbyShop {
 }
 
 /** Everything the product page shows. */
+/**
+ * The product page.
+ *
+ * A card already carries everything, so this only renames `seller` to `shop`
+ * alongside it - the product page was written against that name.
+ */
 export interface ProductDetail extends ProductCard {
-  subcategory: string | null;
-  /** pending | approved | rejected | removed - so the app can say "no longer on sale". */
-  status: string;
-  shop: (ShopCard & { id: string }) | null;
+  shop: ProductShop | null;
 }
 
 @Injectable()
@@ -224,7 +275,9 @@ export class BuyerService {
             }
           : null,
         productCount: products.length,
-        products: products.map((listing) => this.toCard(listing, names)),
+        products: products.map((listing) =>
+          this.toCard(listing, { names, owners }),
+        ),
       };
     });
 
@@ -247,7 +300,7 @@ export class BuyerService {
 
     const listings = await this.products.find({
       where: { seller: { id: In(shopIds) }, approvalStatus: 'approved' },
-      relations: { seller: true, category: true },
+      relations: { seller: true, category: true, subcategory: true },
       order: { createdAt: 'DESC' },
     });
 
@@ -282,28 +335,18 @@ export class BuyerService {
       throw new NotFoundException('No product found for that id');
     }
 
-    const shops = listing.seller ? [listing.seller] : [];
-    const [pictures, names] = await Promise.all([
-      shopPictures(this.users, shops),
-      placeNames(this.map, this.sellers, shops),
-    ]);
+    const context = await this.cardContext([listing]);
+    const card = this.toCard(listing, context);
 
     return {
       message: 'Product retrieved',
       data: {
-        ...this.toCard(listing, names),
-        subcategory: listing.subcategory?.name ?? null,
-        status: listing.approvalStatus,
-        shop: listing.seller
-          ? {
-              id: listing.seller.id,
-              shopName: listing.seller.shopName,
-              logo: pictures.get(listing.seller.id) ?? null,
-              location: names.get(listing.seller.id) ?? null,
-              locationName: names.get(listing.seller.id) ?? null,
-              verificationStatus: listing.seller.verificationStatus,
-            }
-          : null,
+        ...card,
+        subcategory: card.subcategory,
+        status: card.status,
+        // The same shop the card already carries, under the name the product
+        // page uses. Kept so a screen reading either one works.
+        shop: card.seller,
       },
     };
   }
@@ -527,18 +570,20 @@ export class BuyerService {
   async savedProductsFor(userId: string) {
     const saved = await this.savedProducts.find({
       where: { user: { id: userId } },
-      relations: { product: { seller: true, category: true } },
+      relations: {
+        product: { seller: true, category: true, subcategory: true },
+      },
     });
 
     const listings = saved.map((row) => row.product).filter(Boolean);
-    const names = await this.shopNames(listings);
+    const context = await this.cardContext(listings);
 
     return {
       message: 'Saved products retrieved',
       data: saved
         // A row whose product was deleted leaves a dangling save.
         .filter((row) => row.product)
-        .map((row) => this.toCard(row.product, names)),
+        .map((row) => this.toCard(row.product, context)),
     };
   }
 
@@ -583,11 +628,11 @@ export class BuyerService {
    */
   async browse(query: BrowseProductsDto) {
     const listings = await this.onSale(query).getMany();
-    const names = await this.shopNames(listings);
+    const context = await this.cardContext(listings);
 
     return {
       message: 'Products retrieved',
-      data: this.near(listings, names, query),
+      data: this.near(listings, context, query),
     };
   }
 
@@ -609,11 +654,11 @@ export class BuyerService {
       })
       .getMany();
 
-    const names = await this.shopNames(listings);
+    const context = await this.cardContext(listings);
 
     return {
       message: 'Products retrieved',
-      data: this.near(listings, names, rest),
+      data: this.near(listings, context, rest),
     };
   }
 
@@ -623,6 +668,7 @@ export class BuyerService {
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.seller', 'seller')
       .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.subcategory', 'subcategory')
       .where('product.approvalStatus = :status', { status: 'approved' })
       .orderBy('product.createdAt', 'DESC');
 
@@ -643,11 +689,11 @@ export class BuyerService {
    */
   private near(
     listings: Product[],
-    names: Map<string, string | null>,
+    context: CardContext,
     { latitude, longitude, radiusKm }: BrowseProductsDto,
   ) {
     if (latitude === undefined || longitude === undefined) {
-      return listings.map((listing) => this.toCard(listing, names));
+      return listings.map((listing) => this.toCard(listing, context));
     }
 
     const radius = radiusKm ?? DEFAULT_RADIUS_KM;
@@ -667,44 +713,73 @@ export class BuyerService {
       )
       .sort((a, b) => a.distance - b.distance)
       .map(({ listing, distance }) => ({
-        ...this.toCard(listing, names),
+        ...this.toCard(listing, context),
         distanceKm: Math.round(distance * 10) / 10,
       }));
   }
 
-  /** The place name of every shop behind these listings, keyed by shop id. */
-  private shopNames(listings: Product[]) {
-    return placeNames(
-      this.map,
-      this.sellers,
-      listings.map((listing) => listing.seller).filter(Boolean),
-    );
-  }
-
   private toCard(
     listing: Product,
-    names: Map<string, string | null>,
+    { names, owners }: CardContext,
   ): ProductCard {
+    const shop = listing.seller;
+    const where = shop ? (names.get(shop.id) ?? null) : null;
+    const owner = shop ? owners.get(shop.id) : undefined;
+
     return {
       id: listing.id,
       name: listing.name,
+      description: listing.description ?? null,
       // numeric columns come back from pg as strings
       price: Number(listing.price),
+      quantity: listing.quantity,
       image: listing.imageUrl ?? null,
       category: listing.category?.name ?? null,
+      subcategory: listing.subcategory?.name ?? null,
       tags: listing.tags ?? [],
-      seller: listing.seller
-        ? { id: listing.seller.id, shopName: listing.seller.shopName }
+      status: listing.approvalStatus,
+      seller: shop
+        ? {
+            id: shop.id,
+            shopName: shop.shopName,
+            logo: shopPicture(shop, owner?.avatarUrl),
+            description: shop.description ?? null,
+            verificationStatus: shop.verificationStatus,
+            location: where,
+            locationName: where,
+            owner: owner
+              ? {
+                  id: owner.id,
+                  name: owner.fullName ?? null,
+                  profilePicture: owner.avatarUrl ?? null,
+                  email: owner.email,
+                  phone: owner.phone ?? null,
+                  isEmailVerified: owner.emailVerified ?? false,
+                }
+              : null,
+          }
         : null,
-      location: this.placeOf(listing, names),
-      locationName: this.placeOf(listing, names),
+      location: where,
+      locationName: where,
       listedAt: listing.createdAt.toISOString(),
+      updatedAt: listing.updatedAt.toISOString(),
     };
   }
 
-  /** Where a listing's shop is, as a name. */
-  private placeOf(listing: Product, names: Map<string, string | null>) {
-    return listing.seller ? (names.get(listing.seller.id) ?? null) : null;
+  /**
+   * The place names and owners behind a batch of listings.
+   *
+   * Looked up once for the whole page, then handed to every toCard call.
+   */
+  private async cardContext(listings: Product[]): Promise<CardContext> {
+    const shops = listings.map((listing) => listing.seller).filter(Boolean);
+
+    const [names, owners] = await Promise.all([
+      placeNames(this.map, this.sellers, shops),
+      shopOwners(this.users, shops),
+    ]);
+
+    return { names, owners };
   }
 
   /** The shop's coordinates - kept internally, for distance only. */
