@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -171,5 +172,20 @@ export class SellerController {
     @UploadedFile() image?: UploadedImage,
   ) {
     return this.seller.addProduct(user.sub, body, image);
+  }
+
+  /**
+   * DELETE /api/seller/products/:id - take one of your own listings down.
+   *
+   * Whose shop comes from the token, so this can only ever delete a listing
+   * belonging to the caller. Anything else is a 404.
+   */
+  @Delete('products/:id')
+  @HttpCode(HttpStatus.OK)
+  remove(
+    @CurrentUser() user: JwtPayload,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.seller.deleteProduct(user.sub, id);
   }
 }

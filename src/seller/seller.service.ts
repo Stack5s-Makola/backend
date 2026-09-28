@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -497,6 +498,41 @@ export class SellerService {
     }
 
     return shop;
+  }
+
+  /**
+   * Deletes one of the seller's own listings.
+   *
+   * Which shop this acts on comes from the token, and the delete is scoped to
+   * it, so a seller cannot reach another shop's listing by guessing its id.
+   *
+   * A listing in someone else's shop gets the same 404 as one that never
+   * existed: confirming it exists would leak another seller's catalogue.
+   *
+   * The row is really deleted, not flagged. `approvalStatus: 'removed'` is the
+   * admin's soft path for taking a listing down while keeping it on file; a
+   * seller deleting their own listing means it is gone. Any buyer's saved
+   * copy goes with it - `saved_products` cascades on delete.
+   */
+  async deleteProduct(userId: string, productId: string) {
+    const shop = await this.shopOf(userId);
+
+    const listing = await this.products.findOne({
+      where: { id: productId, seller: { id: shop.id } },
+    });
+
+    if (!listing) {
+      throw new NotFoundException('No product found in your shop for that id');
+    }
+
+    await this.products.delete({ id: listing.id });
+
+    this.logger.log(`Seller ${userId} deleted listing ${listing.id}`);
+
+    return {
+      message: 'Product deleted',
+      data: { deleted: true, id: listing.id, name: listing.name },
+    };
   }
 
   /** Finds the category by name, or creates it. Names are matched any case. */

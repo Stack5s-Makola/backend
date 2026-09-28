@@ -22,6 +22,10 @@ export class Product {
   @Column()
   name!: string;
 
+  /** What the seller says about it. Nullable: older listings have none. */
+  @Column({ type: 'text', nullable: true })
+  description?: string;
+
   @Column('decimal')
   price!: number;
 

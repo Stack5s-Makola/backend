@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Product } from '../products/entities/product.entity';
 
 @Module({
   imports: [
@@ -15,9 +14,8 @@ import { Product } from '../products/entities/product.entity';
         // TypeORM drops the URL query string, so Neon's sslmode=require is lost
         ssl: true,
         autoLoadEntities: true,
-        // Schema changes go through migrations, never an automatic sync
-        synchronize: false,
-        entities: [Product],
+        // Automatically create tables if they do not exist (CREATE TABLE IF NOT EXISTS)
+        synchronize: true,
         migrations: [__dirname + '/migrations/*{.ts,.js}'],
         // Neon suspends an idle compute, so the first connection after a quiet
         // spell has to wait for it to wake. Without a longer timeout and a
